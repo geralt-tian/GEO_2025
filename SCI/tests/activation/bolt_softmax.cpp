@@ -34,10 +34,10 @@ using namespace std;
 #define MAX_THREADS 12
 
 int party, port = 32000;
-int num_threads = 12;
+int num_threads = 1;
 string address = "127.0.0.1";
 
-int32_t dim = num_threads*128;
+int32_t dim = num_threads*1;
 int32_t array_size = 128;
 int32_t bw_x = 37;
 int32_t bw_y = 37;
@@ -47,7 +47,7 @@ int32_t input_size = dim*array_size;
 
 bool signed_ = true;
 
-uint64_t mask_x = (bw_x == 64 ? -1 : ((1ULL << 29) - 1));
+uint64_t mask_x = (bw_x == 64 ? -1 : ((1ULL << 29) - 1));//为啥不是用bw_x mask？
 uint64_t mask_y = (bw_y == 64 ? -1 : ((1ULL << 29) - 1));
 
 IOPack *iopackArr[MAX_THREADS];

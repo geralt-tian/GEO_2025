@@ -31,7 +31,7 @@ SOFTWARE.
 using namespace sci;
 using namespace std;
 
-#define MAX_THREADS 1
+#define MAX_THREADS 12
 
 int party, port = 32000;
 int num_threads = 1;
@@ -39,17 +39,16 @@ string address = "127.0.0.1";
 
 int32_t dim = num_threads*1;
 int32_t array_size = 128;
-int32_t bw_x = 16;
-int32_t bw_y = 16;
+int32_t bw_x = 20;
+int32_t bw_y = 20;
 int32_t s_x = 12;
 int32_t s_y = 12;
 int32_t input_size = dim*array_size;
 
 bool signed_ = true;
 
-uint64_t mask_x = (bw_x == 64 ? -1 : ((1ULL << bw_x) - 1));
-uint64_t mask_y = (bw_y == 64 ? -1 : ((1ULL << bw_y) - 1));
-
+uint64_t mask_x = (bw_x == 64 ? -1 : ((1ULL << 21) - 1));
+uint64_t mask_y = (bw_y == 64 ? -1 : ((1ULL << 21) - 1));
 
 IOPack *iopackArr[MAX_THREADS];
 OTPack *otpackArr[MAX_THREADS];
@@ -57,10 +56,14 @@ OTPack *otpackArr[MAX_THREADS];
 void softmax_double(const double* input, double* output, int dim, int array_size) {
   
   for (int i = 0; i < dim; i++){
+    double max_s = input[i*array_size];
+    for (int j = 0; j < array_size; ++j) {
+      max_s = max(max_s, input[j + i*array_size]);
+    }
     double sumExp = 0.0;
     // Compute the exponential of each input element and accumulate the sum
     for (int j = 0; j < array_size; ++j) {
-      double expValue = std::exp(input[j + i*array_size]);
+      double expValue = std::exp(input[j + i*array_size] - max_s);
       output[j + i*array_size] = expValue;
       sumExp += expValue;
     }
@@ -95,7 +98,8 @@ void operation_thread(int tid, uint64_t *x, uint64_t *y, int num_ops) {
   for(int i = 0; i < num_ops; i++){
     input_array.push_back(fpmath->fix->input(this_party, array_size, &x[i*array_size], true, bw_x, s_x));
   }
-  vector<FixArray> output_array = fpmath->softmax_fix_iron_1(input_array);
+  vector<FixArray> output_array;
+  tie(output_array, ignore) = fpmath->softmax_fix_our(input_array);
   for(int i = 0; i < num_ops; i++){
     memcpy(&y[i*array_size], output_array[i].data, array_size * sizeof(uint64_t));
   }

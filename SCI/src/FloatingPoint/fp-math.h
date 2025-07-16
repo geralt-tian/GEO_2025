@@ -24,6 +24,7 @@ SOFTWARE.
 
 #include "FloatingPoint/floating-point.h"
 #include "Math/math-functions.h"
+#include "BuildingBlocks/geometric_perspective_protocols.h"
 
 class FPMath {
 public:
@@ -34,6 +35,7 @@ public:
   FixOp *fix;
   FPOp *fp_op;
   MathFunctions *math;
+  GeometricPerspectiveProtocols *gp;
 
   FPMath(int party, sci::IOPack *iopack, sci::OTPack *otpack) {
     this->party = party;
@@ -43,12 +45,14 @@ public:
     this->fix = new FixOp(party, iopack, otpack);
     this->fp_op = new FPOp(party, iopack, otpack);
     this->math = new MathFunctions(party, iopack, otpack);
+    this->gp = new GeometricPerspectiveProtocols(party, iopack, otpack);
   }
 
   ~FPMath() {
     delete bool_op;
     delete fix;
     delete fp_op;
+    // delete gp;
   }
 
   // Floating-Point Math Functions: returns OP(x[i]), OP = {sinpi, cospi, tanpi, exp2, log2, exp, ln, erf}
@@ -73,6 +77,8 @@ public:
 
   vector<FPArray> softmax_beacon(const vector<FPArray>& x);
   vector<FPArray> softmax_secfloat(const vector<FPArray>& x);
+  std::tuple<vector<FixArray>, FixArray> softmax_fix_our(const vector<FixArray>& x);
+
   std::tuple<vector<FixArray>, FixArray> softmax_fix(const vector<FixArray>& x);
 
   vector<FixArray> softmax_fix_iron_1(const vector<FixArray>& x);

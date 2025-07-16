@@ -1258,7 +1258,7 @@ FixArray FixOp::poly1(const FixArray& p){
 
   int ell = p.ell;
   int scale = p.s;
-  
+  // print_fix(p);
   BoolArray all_1 = bool_op->input(ALICE, p.size, 1);
   BoolArray all_0 = bool_op->input(ALICE, p.size, uint8_t(0));
 
@@ -1278,7 +1278,7 @@ FixArray FixOp::poly1(const FixArray& p){
   // Optimization: local truncation
   arg1_p_arg2 =  this->truncate_reduce(arg1_p_arg2, scale);
   // arg1_p_arg2 =  this->reduce(arg1_p_arg2, ell);
-  // print_fix(arg1_p_arg2);
+  // print_fix(this->add(arg1_p_arg2, arg3));
 
   return this->add(arg1_p_arg2, arg3);
 }

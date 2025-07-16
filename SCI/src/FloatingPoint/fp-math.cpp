@@ -21,7 +21,7 @@ SOFTWARE.
 
 #include "FloatingPoint/fp-math.h"
 #include "FloatingPoint/fp-math-coeffs.h"
-
+#include "utils/io_pack.h"
 using namespace std;
 using namespace sci;
 
@@ -640,7 +640,7 @@ std::tuple<FixArray, FixArray> FPMath::exp4(const FixArray &x){
   */
 
   // print_fix(x);
-
+  size_t comm_start = iopack->get_comm();
   int ell = x.ell;
   int scale = x.s;
 
@@ -691,9 +691,13 @@ std::tuple<FixArray, FixArray> FPMath::exp4(const FixArray &x){
   FixArray bound = fix->input(PUBLIC, l_short.size, 13, false, l_short.ell, 0);
   BoolArray gt_bound = fix->GT(l_short, bound);
   l_short = fix->if_else(gt_bound, bound, l_short);
+  // print_fix(l_short);
+
 
   FixArray ret = fix->right_shift(poly_p, l_short, scale + 1, all_1.data);
-
+  // print_fix(ret);
+  size_t comm_end = iopack->get_comm();
+  std::cout << "exp4 comm: " << comm_end - comm_start << std::endl;
   return make_tuple(ret, l_short_raw);
 }
 
@@ -1308,6 +1312,184 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix(const vector<FixArray
 }
 
 
+
+// std::tuple<FixArray, FixArray> FPMath::exp_ours(const FixArray &x){
+
+//   /*
+//   l = np.floor((x / -math.log(2)))
+//   p = x + l*math.log(2)
+//   fp = poly(p)
+//   return fp / (2**l)
+//   */
+
+//   // print_fix(x);
+//   size_t comm_start = iopack->get_comm();
+//   int ell = x.ell;
+//   int scale = x.s;
+
+//   // All 0 and all 1 array for msb arg
+//   BoolArray all_0 = bool_op->input(ALICE, x.size, uint8_t(0));
+//   BoolArray all_1 = bool_op->input(ALICE, x.size, 1);
+  
+
+//   // ln2
+//   FixArray ln2 = fix->input(PUBLIC, x.size, uint64_t(2839), true, ell, scale);
+//   // print_fix(ln2);
+
+//   // inverse of negative ln2
+//   FixArray inl = fix->input(PUBLIC, x.size, uint64_t(-5909), true, ell, scale);
+//   // print_fix(inl);
+
+//   // x / -math.log(2)
+//   // Truncate to original scale and bitlength
+//   FixArray x_inl = fix->mul(x, inl, ell + scale);
+//   // Optimization: local truncation
+//   x_inl =  fix->truncate_reduce(x_inl, scale);
+//   // x_inl =  fix->reduce(x_inl, ell);
+//   // print_fix(x_inl);
+
+//   // Get the integer part and scale back
+//   FixArray l_short = fix->truncate_reduce(x_inl, scale);
+//   FixArray l_short_raw = l_short; //l_short_raw 没有用到
+//   FixArray l = fix->scale_up(l_short, ell, scale);
+
+//   // l*math.log(2)
+//   FixArray l_ln2 = fix->mul(l, ln2, ell+scale, all_0.data, all_0.data);
+//   l_ln2 =  fix->truncate_reduce(l_ln2, scale);
+//   // l_ln2 =  fix->reduce(l_ln2, ell);
+
+//   // Get the decimal part  
+//   FixArray p = fix->add(x, l_ln2);
+//   // Optimization: We don't need that much bit as p \in (-ln2, 0])
+//   p = fix->reduce(p, scale + 2);
+
+//   // Polynomial fit
+//   FixArray poly_p = fix->poly1(p);
+//   poly_p = fix->extend(poly_p, ell, all_0.data);
+
+//   l_short.signed_ = false;
+//   // Optimization: The polynomial result is within [0, ~0.7)
+//   // Thus the upper bound of shift is scale + 1
+
+//   FixArray bound = fix->input(PUBLIC, l_short.size, 13, false, l_short.ell, 0);
+//   BoolArray gt_bound = fix->GT(l_short, bound);
+//   l_short = fix->if_else(gt_bound, bound, l_short);
+//   // print_fix(l_short);
+
+
+//   FixArray ret = fix->right_shift(poly_p, l_short, scale + 1, all_1.data);
+//   // print_fix(ret);
+//   size_t comm_end = iopack->get_comm();
+//   std::cout << "exp_ours comm: " << comm_end - comm_start << std::endl;
+//   return make_tuple(ret, l_short_raw);
+// }
+
+std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixArray>& x) {
+  // std::cout << "Entering softmax fix" << std::endl;
+  int N = x.size();
+  int n = x[0].size;
+  int ell = x[0].ell;
+  int s = x[0].s;
+
+  // for (int i = 0; i < N; i++){
+  //   print_fix(x[i]);
+  // }
+
+  bool signed_ = x[0].signed_;
+  // assert(m_bits > 0);
+  for(int i = 1; i < N; i++) {
+    assert(x[i].party != PUBLIC);
+    assert(x[i].ell == ell);
+    assert(x[i].s == s);
+    assert(x[i].size == n);
+  }
+  FixArray x_max = fix->max(x);
+  // x_max = fix->add(x_max, 1);
+  FixArray x_max_flat(party, N*n, signed_, ell, s);
+  for (int i = 0; i < N; i++) {
+    for (int j = 0; j < n; j++) {
+      x_max_flat.data[i*n + j] = x_max.data[i];
+    }
+  }
+
+  // FixArray x_max_flat = fix->input(PUBLIC, N*n, 10<<s, signed_, ell, s);
+  // print_fix(x_max_flat);
+  // assert(0);
+
+  FixArray x_flat = concat(x);
+  FixArray shifted_x_flat = fix->sub(x_flat, x_max_flat);
+
+  FixArray l_short;
+
+  // this->gp->exp_nagx(int32_t dim, uint64_t *inA, uint64_t *result, int32_t in_bw,int32_t in_f, 
+  //  int32_t localexp_bw, int32_t localexp_f, int32_t locallut_bw, int32_t locallut_f);
+
+  uint64_t *output = new uint64_t[N*n];
+  this->gp->exp_nagx(N*n, shifted_x_flat.data, output, ell, s, 23, 10, 34, 32);
+
+  printf("exp_nagx done.\n");
+  
+  // 正确初始化 e_x_flat
+  FixArray e_x_flat(party, N*n, signed_, ell, s);
+  for (int i = 0; i < N*n; i++){
+    e_x_flat.data[i] = output[i];
+  }
+  printf("e_x_flat.data[i] = output[i];\n");
+
+  // tie(e_x_flat, l_short) = exp_ours(shifted_x_flat); //l_short is not used
+  // FixArray e_x_flat = shifted_x_flat;
+
+  int exp_ell = 19;
+  e_x_flat = fix->reduce(e_x_flat, exp_ell);
+
+  vector<FixArray> e_x_tr(n);
+  for (int i = 0; i < n; i++) {
+    e_x_tr[i] = FixArray(party, N, signed_, exp_ell, s);
+    for (int j = 0; j < N; j++) {
+      e_x_tr[i].data[j] = e_x_flat.data[j*n + i];
+    }
+  }
+  FixArray sum_e_x;
+  {
+    vector<FixArray> tmp = e_x_tr;
+    int num_adds_old = n; int num_adds_curr = n/2;
+    while(num_adds_old > 1) {
+      int odd_num_adds = num_adds_old & 1;
+      vector<FixArray> lhs(num_adds_curr); vector<FixArray> rhs(num_adds_curr);
+      for (int j = odd_num_adds; j < num_adds_old && j + 1 < num_adds_old; j += 2) {
+        lhs[j/2] = tmp[j]; rhs[j/2] = tmp[j+1];
+      }
+      FixArray lhs_concat = concat(lhs);
+      FixArray rhs_concat = concat(rhs);
+      lhs_concat = fix->add(lhs_concat, rhs_concat);
+      for (int j = 0; j < num_adds_old && j + 1 < num_adds_old; j += 2) {
+        tmp[odd_num_adds + (j/2)] = lhs_concat.subset((j/2)*N, (j/2)*N + N);
+      }
+      num_adds_old = num_adds_curr + odd_num_adds;
+      num_adds_curr = num_adds_old/2;
+    }
+    sum_e_x = tmp[0];
+  }
+  
+  sum_e_x.signed_ = false;
+  FixArray ret_flat = fix->div_batch(e_x_flat, sum_e_x, n ,exp_ell, s);
+
+  BoolArray all_0 = bool_op->input(ALICE, N, uint8_t(0));
+  ret_flat = fix->extend(ret_flat, ell);
+
+  vector<FixArray> ret(N);
+  for (int i = 0; i < N; i++) {
+    ret[i] = FixArray(party, n, signed_, ell, s);
+    memcpy(ret[i].data, ret_flat.data + i*n, n*sizeof(uint64_t));
+  }
+  
+  // 清理动态分配的内存
+  delete[] output;
+  
+  return make_tuple(ret, l_short);//l_short is not used
+}
+
+
 vector<FixArray> FPMath::softmax_fix_iron_1(const vector<FixArray>& x) {
   int N = x.size();
   // for (int i = 0; i < N; i++){
@@ -1337,7 +1519,10 @@ vector<FixArray> FPMath::softmax_fix_iron_1(const vector<FixArray>& x) {
   FixArray shifted_x_flat = fix->sub(x_flat, x_max_flat);
 
   // FixArray e_x_flat = fix->exp(shifted_x_flat, ell, s);
+  auto comm_start = iopack->get_comm();
   FixArray e_x_flat = lookup_table_exp(shifted_x_flat);
+  auto comm_end = iopack->get_comm();
+  std::cout << "lookup_table_exp comm: " << comm_end - comm_start << std::endl;
 
   vector<FixArray> e_x_tr(n);
   for (int i = 0; i < n; i++) {
