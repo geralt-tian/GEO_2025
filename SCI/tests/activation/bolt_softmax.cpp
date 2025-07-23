@@ -37,8 +37,8 @@ int party, port = 32000;
 int num_threads = 1;
 string address = "127.0.0.1";
 
-int32_t dim = num_threads*1;
-int32_t array_size = 128;
+int32_t dim = num_threads*16;//128
+int32_t array_size = 768; //768
 int32_t bw_x = 37;
 int32_t bw_y = 37;
 int32_t s_x = 12;
@@ -209,10 +209,10 @@ int main(int argc, char **argv) {
 
     for (int i = 0; i < input_size; i++) {
       uint64_t err = computeULPErr(dbl_y[i], dbl_ref[i], s_y);
-      if (err > 10){
-        cout << "ULP Error: " << dbl_x[i] << "," << dbl_y[i] << "," << dbl_ref[i] << ","
-      << err << endl;
-      }
+      // if (err > 10){
+      //   cout << "ULP Error: " << dbl_x[i] << "," << dbl_y[i] << "," << dbl_ref[i] << ","
+      // << err << endl;
+      // }
       
       total_err += err;
       max_ULP_err = std::max(max_ULP_err, err);

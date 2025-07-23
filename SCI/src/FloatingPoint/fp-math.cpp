@@ -22,6 +22,7 @@ SOFTWARE.
 #include "FloatingPoint/fp-math.h"
 #include "FloatingPoint/fp-math-coeffs.h"
 #include "utils/io_pack.h"
+#include <cstddef>
 using namespace std;
 using namespace sci;
 
@@ -697,7 +698,7 @@ std::tuple<FixArray, FixArray> FPMath::exp4(const FixArray &x){
   FixArray ret = fix->right_shift(poly_p, l_short, scale + 1, all_1.data);
   // print_fix(ret);
   size_t comm_end = iopack->get_comm();
-  std::cout << "exp4 comm: " << comm_end - comm_start << std::endl;
+  // std::cout << "exp4 comm: " << comm_end - comm_start << std::endl;
   return make_tuple(ret, l_short_raw);
 }
 
@@ -1243,7 +1244,14 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix(const vector<FixArray
     assert(x[i].s == s);
     assert(x[i].size == n);
   }
+
+  size_t comm_start = iopack->get_comm();
+
   FixArray x_max = fix->max(x);
+
+  size_t comm_end = iopack->get_comm();
+  std::cout << "max comm: " << comm_end - comm_start << std::endl;
+
   // x_max = fix->add(x_max, 1);
   FixArray x_max_flat(party, N*n, signed_, ell, s);
   for (int i = 0; i < N; i++) {
@@ -1261,8 +1269,10 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix(const vector<FixArray
 
   FixArray e_x_flat;
   FixArray l_short;
-
+  size_t comm_start_exp = iopack->get_comm();
   tie(e_x_flat, l_short) = exp4(shifted_x_flat);
+  size_t comm_end_exp = iopack->get_comm();
+  std::cout << "exp comm: " << comm_end_exp - comm_start_exp << std::endl;
   // FixArray e_x_flat = shifted_x_flat;
 
   int exp_ell = 19;
@@ -1298,9 +1308,14 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix(const vector<FixArray
   }
   
   sum_e_x.signed_ = false;
+  size_t comm_start_div = iopack->get_comm(); 
   FixArray ret_flat = fix->div_batch(e_x_flat, sum_e_x, n ,exp_ell, s);
+  size_t comm_end_div = iopack->get_comm();
+  std::cout << "div comm: " << comm_end_div - comm_start_div << std::endl;
 
   BoolArray all_0 = bool_op->input(ALICE, N, uint8_t(0));
+
+
   ret_flat = fix->extend(ret_flat, ell);
 
   vector<FixArray> ret(N);

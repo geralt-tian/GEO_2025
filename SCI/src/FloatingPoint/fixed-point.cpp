@@ -20,6 +20,7 @@ SOFTWARE.
 */
 
 #include "FloatingPoint/fixed-point.h"
+#include <cstdio>
 
 using namespace std;
 using namespace sci;
@@ -1084,14 +1085,16 @@ FixArray FixOp::div_batch(const FixArray& nm, const FixArray& dn, int batch_dn_s
 
   FixArray nrmlzd_dn;
   FixArray adjust = fix->input(PUBLIC, dn.size, uint64_t(0), false, dn.ell + 1, 0);
+  // printf("adjust.party: %d\n", adjust.party); //这里还是public的
   if (!normalized_dn) {
     vector<FixArray> msnzb_one_hot = fix->msnzb_one_hot(dn, dn.ell + 1);
     for (int i = 0; i < dn.ell; i++) {
       adjust = fix->add(adjust, fix->mul(msnzb_one_hot[i], (1ULL << (dn.ell - 1 - i))));
     }
+    // printf("adjust.party: %d\n", adjust.party); 是share值
     adjust.s = dn.ell - 1 - dn.s;
     BoolArray msb_dn = fix->LSB(msnzb_one_hot[dn.ell - 1]);
-    nrmlzd_dn = fix->mul(dn, adjust, dn.ell + 1, msb_dn.data, all_0.data);
+    nrmlzd_dn = fix->mul(dn, adjust, dn.ell + 1, msb_dn.data, all_0.data); //dn是share，adjust是share
   } else {
     if (dn.ell == dn.s + 1) {
       nrmlzd_dn = fix->extend(dn, dn.s + 2, all_1.data);
@@ -1121,6 +1124,8 @@ FixArray FixOp::div_batch(const FixArray& nm, const FixArray& dn, int batch_dn_s
   }
   FixArray c0 = fix->LUT(spec_c0, idx, true, m + 4, m + 3);
   FixArray c1 = fix->LUT(spec_c1, idx, true, 2*m + 3, 2*m + 2);
+  // printf("c0.party: %d\n", c0.party);
+  // printf("eps.party: %d\n", eps.party);
   FixArray w = fix->mul(c0, eps, nrmlzd_dn.s + 4, all_0.data, msb_eps.data);
   w = fix->sub(fix->scale_up(c1, nrmlzd_dn.s + m + 4, nrmlzd_dn.s + m + 3),
                fix->extend(w, nrmlzd_dn.s + m + 4, all_0.data));
@@ -1146,8 +1151,8 @@ FixArray FixOp::div_batch(const FixArray& nm, const FixArray& dn, int batch_dn_s
 
   BoolArray all_0_dm = bool_op->input(ALICE, nm.size, uint8_t(0));
   // BoolArray all_1_dm = bool_op->input(ALICE, nm.size, uint8_t(1));
-
-  FixArray a = fix->mul(nm, w_extend, nm.ell + s_out, msb_nm_data, all_0_dm.data);
+  // size_t comm_start_div = iopack->get_comm(); 
+  FixArray a = fix->mul(nm, w_extend, nm.ell + s_out, msb_nm_data, all_0_dm.data);//这个mul可以优化，w_extend中每一行都是同一个值
   a = fix->truncate_reduce(a, nm.s);
   if ((nm.ell - nm.s) >= (l_out - s_out)) {
     a = fix->reduce(a, l_out);
@@ -1155,13 +1160,20 @@ FixArray FixOp::div_batch(const FixArray& nm, const FixArray& dn, int batch_dn_s
     a = fix->extend(a, l_out, msb_nm_data);
   }
 
+
+  //a是return的 a是share值 adjust_extend也是share值
   if (!normalized_dn) {
     // Change extend adjust here
-    a = fix->mul(a, adjust_extend, l_out + adjust_extend.s, msb_nm_data, all_0_dm.data);
+    a = fix->mul(a, adjust_extend, l_out + adjust_extend.s, msb_nm_data, all_0_dm.data);//这个mul可以优化，adjust_extend中每一行都是同一个值
     a = fix->truncate_reduce(a, adjust_extend.s);
+    printf("adjust_extend.s: %d\n", adjust_extend.s);
   }
-
+  // size_t comm_end_div = iopack->get_comm();
+  // std::cout << "optimal mul comm: " << comm_end_div - comm_start_div << std::endl;
+  // printf("iters: %d\n", iters);
+  //这里跑出来是0
   if (iters > 0) {
+    // printf("iters: %d\n", iters);
     assert(0);
     FixArray d = fix->mul(w, nrmlzd_dn, s_out + nrmlzd_dn.s + 2, all_0.data, all_0.data);
     d = fix->truncate_reduce(d, nrmlzd_dn.s);

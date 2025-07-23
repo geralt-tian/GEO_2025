@@ -158,7 +158,7 @@ int main(int argc, char **argv) {
     }
 
     // Accuracy analysis (only on one party to avoid duplicate output)
-    if (party == sci::BOB) {
+    if (1) {
         cout << "\n=== Accuracy Analysis ===" << endl;
         
         double ulp = 1.0 / (1ULL << in_f); // ULP for input precision (assuming output same as input)

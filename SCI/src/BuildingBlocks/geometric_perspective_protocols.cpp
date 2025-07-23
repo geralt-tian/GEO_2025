@@ -2,7 +2,12 @@
 
 #include "geometric_perspective_protocols.h"
 #include <cmath>
+#include <cstdint>
 #include <math.h>
+#include <ctime>
+#include <cstdlib>
+#include <algorithm>
+
 
 GeometricPerspectiveProtocols::GeometricPerspectiveProtocols(int party, sci::IOPack *iopack, sci::OTPack *otpack) {
     this->party = party;
@@ -1237,18 +1242,7 @@ void GeometricPerspectiveProtocols::exp_nagx(int32_t dim, uint64_t *inA, uint64_
 
 
 
-        uint64_t *MW_input = new uint64_t[dim];
-        if (party == sci::ALICE) {
-            for (int i = 0; i < dim; i++) {
-                MW_input[i] = (-inA[i] + 2*pow_f_input) & mask_in_bw;
-            }
-          } else {
-            for (int i = 0; i < dim; i++) {
-                MW_input[i] = (-inA[i] + 2*pow_f_input) & mask_in_bw;
-            }
-          }
-  
-        mw(dim, MW_input, MW, in_bw, 2);
+
 
         aux->MSB(drelu_input, drelu, dim, in_bw);
 
@@ -1270,8 +1264,24 @@ void GeometricPerspectiveProtocols::exp_nagx(int32_t dim, uint64_t *inA, uint64_
         }
 
         ///////////////计算exp( - inA) * exp(-4)///////////////////////
-          exp_nag4(dim, inA_expinput,exp_result, MW , in_f + 3, in_f, in_f + 3, in_f, localexp_bw, localexp_f, locallut_bw, locallut_f);
+        size_t comm_start_exp = iopack->get_comm();
+        
 
+        uint64_t *MW_input = new uint64_t[dim];
+        if (party == sci::ALICE) {
+            for (int i = 0; i < dim; i++) {
+                MW_input[i] = (-inA[i] + 2*pow_f_input) & mask_in_bw;
+            }
+          } else {
+            for (int i = 0; i < dim; i++) {
+                MW_input[i] = (-inA[i] + 2*pow_f_input) & mask_in_bw;
+            }
+          }
+  
+        mw(dim, MW_input, MW, in_bw, 2);
+          exp_nag4(dim, inA_expinput,exp_result, MW , in_f + 3, in_f, in_f + 3, in_f, localexp_bw, localexp_f, locallut_bw, locallut_f);
+          size_t comm_end_exp = iopack->get_comm();
+        std::cout << "exp nag4 comm: " << comm_end_exp - comm_start_exp << std::endl;
         
           this->aux->multiplexer(drelu, exp_result, result, dim, in_bw, in_bw);
 
@@ -1285,3 +1295,329 @@ void GeometricPerspectiveProtocols::exp_nagx(int32_t dim, uint64_t *inA, uint64_
         // }
         // printf("mask_in_bw: %llu\n", mask_in_bw);
     }
+
+
+
+
+    // vector_scalar multiplication bwA>=bwB
+    void GeometricPerspectiveProtocols::vector_bit_mul(int32_t dim, uint64_t *inA, uint8_t ot_choice, uint64_t *outC,
+    int32_t bwA) {
+        uint64_t mask_A = (1ULL << bwA) - 1;
+        // uint64_t mask_C = (1ULL << bwC) - 1;
+
+        // 计算紧密打包后的总block数量 (在所有parties中都需要)
+        int32_t values_per_block = 128 / bwA;
+        int32_t total_blocks = (dim + values_per_block - 1) / values_per_block;
+
+        // Alice端：生成数据和密钥
+        sci::block128* encoded_blocks = nullptr;
+        sci::block128* encoded_blocks_f = nullptr;
+        
+        // 密钥只由Alice生成，Bob不知道
+        // Bob永远不会直接访问这些密钥，只能通过OT获得其中一个
+        unsigned char key_bytes[16];
+        unsigned char key_bytes_f[16];
+        
+        if (party == sci::ALICE) {
+            // 只有Alice生成密钥
+            unsigned char alice_key_0[16] = {0,9,0,0,0,0,0,0,0,0,0,0,0,0,9,9};
+            unsigned char alice_key_1[16] = {1,1,1,'a',0,0,1,0,0,0,0,5,0,0,4,0};
+            memcpy(key_bytes, alice_key_0, 16);
+            memcpy(key_bytes_f, alice_key_1, 16);
+            
+            uint64_t *A_random = new uint64_t[dim];
+            uint64_t *random_number = new uint64_t[dim];
+            
+            // 设置固定种子确保每次运行都生成相同的随机数序列
+            srand(1);
+            for (int i = 0; i < dim; i++) {
+                random_number[i] = (rand() % (mask_A + 1));
+                outC[i] = (-random_number[i]) & mask_A;
+            }
+            //将inA和random_number相加
+            for (int i = 0; i < dim; i++) {
+                A_random[i] = (inA[i] + random_number[i]) & mask_A;
+            }
+            for (int i = 0; i < 100; i++) {
+                printf("random_number[%d]: %llu\n", i, random_number[i]); 
+                printf("A_random[%d]: %llu\n", i, A_random[i]);
+            }
+            
+            
+            //AES key generation
+            sci::AESNI_KEY encrypt_key, encrypt_key_f;
+            sci::AESNI_set_encrypt_key(&encrypt_key, key_bytes, 16);
+            sci::AESNI_set_encrypt_key(&encrypt_key_f, key_bytes_f, 16);
+
+            // 编码和加密
+            encoded_blocks = encode_A_random_to_blocks(A_random, dim, bwA);
+            encoded_blocks_f = encode_A_random_to_blocks(random_number, dim, bwA);
+            
+            // 打印调试信息
+            uint64_t block_data[2];
+            _mm_storeu_si128((__m128i*)block_data, encoded_blocks[0]);
+            printf("encoded_blocks[0]: 0x%016llx%016llx (contains %d values)\n", 
+                   block_data[1], block_data[0], values_per_block);
+
+            sci::AESNI_ecb_encrypt_blks(encoded_blocks, total_blocks, &encrypt_key);
+            sci::AESNI_ecb_encrypt_blks(encoded_blocks_f, total_blocks, &encrypt_key_f);
+
+            _mm_storeu_si128((__m128i*)block_data, encoded_blocks[0]);
+            printf("encrypt encoded_blocks[0]: 0x%016llx%016llx\n", block_data[1], block_data[0]);
+            
+            delete[] A_random;
+            delete[] random_number;
+        }
+
+        // Alice发送加密数据，Bob接收
+        sci::block128* received_encrypt_blocks = new sci::block128[total_blocks];
+        sci::block128* received_encrypt_blocks_f = new sci::block128[total_blocks];
+        
+        if (party == sci::ALICE) {
+            iopack->io->send_data(encoded_blocks, total_blocks * sizeof(sci::block128));
+            iopack->io->send_data(encoded_blocks_f, total_blocks * sizeof(sci::block128));
+        } else {
+            iopack->io->recv_data(received_encrypt_blocks, total_blocks * sizeof(sci::block128));
+            iopack->io->recv_data(received_encrypt_blocks_f, total_blocks * sizeof(sci::block128));
+        }
+
+        // OT传输密钥 - 使用多组OT数组提高效率
+        const int num_ots = 8;  // 可以根据需要调整OT数量
+        sci::block128 key_block_0, key_block_1;
+        sci::block128 received_key_block[num_ots];
+        bool ot_choice_bool[num_ots];
+        
+        if (party == sci::ALICE) {
+            // Alice: 将16字节密钥转换为block128
+            key_block_0 = _mm_loadu_si128((__m128i*)key_bytes_f);
+            key_block_1 = _mm_loadu_si128((__m128i*)key_bytes);
+            
+            // 准备多组OT数据
+            sci::block128 ot_data0[num_ots];
+            sci::block128 ot_data1[num_ots];
+            
+            for (int i = 0; i < num_ots; i++) {
+                ot_data0[i] = key_block_0;  // 选择0的密钥
+                ot_data1[i] = key_block_1;  // 选择1的密钥
+            }
+            
+            // 执行多组OT
+            otpack->iknp_straight->send(ot_data0, ot_data1, num_ots);
+            printf("Alice sent %d OTs with 128-bit keys\n", num_ots);
+            for (int i = 0; i < num_ots; i++) {
+                uint64_t data0_parts[2], data1_parts[2];
+                _mm_storeu_si128((__m128i*)data0_parts, ot_data0[i]);
+                _mm_storeu_si128((__m128i*)data1_parts, ot_data1[i]);
+                printf("ot_data0[%d]: 0x%016llx%016llx\n", i, data0_parts[1], data0_parts[0]);
+                printf("ot_data1[%d]: 0x%016llx%016llx\n", i, data1_parts[1], data1_parts[0]);
+            }
+        } else {
+            // Bob: 准备多组选择位
+            for (int i = 0; i < num_ots; i++) {
+                ot_choice_bool[i] = (ot_choice == 1);  // 所有OT使用相同选择位
+            }
+            
+            // 接收多组OT结果
+            otpack->iknp_straight->recv(received_key_block, ot_choice_bool, num_ots);
+            printf("Bob received %d OTs, using first result\n", num_ots);
+            for (int i = 0; i < num_ots; i++) {
+                uint64_t received_parts[2];
+                _mm_storeu_si128((__m128i*)received_parts, received_key_block[i]);
+                printf("received_key_block[%d]: 0x%016llx%016llx\n", i, received_parts[1], received_parts[0]);
+            }
+        }
+
+        // 只有Bob进行解密
+        if (party == sci::BOB) {
+            // 将接收到的block128密钥转换为AES可用格式
+            unsigned char received_key[16];
+            _mm_storeu_si128((__m128i*)received_key, received_key_block[0]);
+            
+            sci::AESNI_KEY received_decrypt_key;
+            sci::AESNI_set_decrypt_key(&received_decrypt_key, received_key, 16);
+            
+            if (ot_choice == 1) {
+                sci::AESNI_ecb_decrypt_blks(received_encrypt_blocks, total_blocks, &received_decrypt_key);
+                uint64_t* decoded_data = decode_blocks_to_A_random(received_encrypt_blocks, dim, bwA);
+                // decoded_data 现在包含 A_random = inA + random_number
+                memcpy(outC, decoded_data, dim * sizeof(uint64_t));
+                delete[] decoded_data;
+            } else if (ot_choice == 0) {
+                sci::AESNI_ecb_decrypt_blks(received_encrypt_blocks_f, total_blocks, &received_decrypt_key);
+                uint64_t* decoded_data = decode_blocks_to_A_random(received_encrypt_blocks_f, dim, bwA);
+                // decoded_data 现在包含 random_number
+                memcpy(outC, decoded_data, dim * sizeof(uint64_t));
+                delete[] decoded_data;
+            }
+            for (int i = 0; i < 100; i++) {
+                printf("outC[%d]: %llu \n", i, outC[i]); 
+            }
+            // printf("outC[0]: %llu \n",outC[0]); 
+        }
+
+        // 清理内存
+        if (party == sci::ALICE) {
+            delete[] encoded_blocks;
+            delete[] encoded_blocks_f;
+        }
+        delete[] received_encrypt_blocks;
+        delete[] received_encrypt_blocks_f;
+    }
+
+
+
+    // 🔥 新增：将A_random数组转换为block128数组（选项1：紧密打包多个值）
+    sci::block128* GeometricPerspectiveProtocols::encode_A_random_to_blocks(
+        const uint64_t* A_random, int32_t dim, int32_t bwA) {
+        
+        // 计算每个block128能放多少个值
+        int32_t values_per_block = 128 / bwA;  // 整数除法
+        int32_t total_blocks = (dim + values_per_block - 1) / values_per_block;  // 向上取整
+        
+        // 分配block128数组
+        sci::block128* block_array = new sci::block128[total_blocks];
+        
+        // 处理每个block
+        for (int32_t block_idx = 0; block_idx < total_blocks; block_idx++) {
+            // 初始化当前block为0
+            uint64_t block_data_low = 0;
+            uint64_t block_data_high = 0;
+            
+            // 在当前block中打包多个值
+            for (int32_t i = 0; i < values_per_block; i++) {
+                int32_t value_idx = block_idx * values_per_block + i;
+                
+                if (value_idx < dim) {
+                    uint64_t value = A_random[value_idx];
+                    int32_t bit_offset = i * bwA;
+                    
+                    if (bit_offset < 64) {
+                        // 值放在低64位
+                        if (bit_offset + bwA <= 64) {
+                            // 完全在低64位内
+                            block_data_low |= (value << bit_offset);
+                        } else {
+                            // 跨越低64位和高64位
+                            int32_t bits_in_low = 64 - bit_offset;
+                            int32_t bits_in_high = bwA - bits_in_low;
+                            block_data_low |= (value << bit_offset);
+                            block_data_high |= (value >> bits_in_low);
+                        }
+                    } else {
+                        // 值完全在高64位
+                        block_data_high |= (value << (bit_offset - 64));
+                    }
+                }
+            }
+            
+            // 创建block128
+            block_array[block_idx] = sci::makeBlock128(block_data_high, block_data_low);
+        }
+        
+        return block_array;
+    }
+    
+    // 🔥 新增：从block128数组解码回A_random数组（选项1：紧密打包多个值）
+    uint64_t* GeometricPerspectiveProtocols::decode_blocks_to_A_random(
+        const sci::block128* block_array, int32_t dim, int32_t bwA) {
+        
+        // 计算每个block128能放多少个值
+        int32_t values_per_block = 128 / bwA;  // 整数除法
+        int32_t total_blocks = (dim + values_per_block - 1) / values_per_block;  // 向上取整
+        
+        // 分配A_random数组
+        uint64_t* A_random = new uint64_t[dim];
+        
+        // 从每个block中提取多个值
+        for (int32_t block_idx = 0; block_idx < total_blocks; block_idx++) {
+            // 提取当前block的数据
+            uint64_t block_data[2];
+            _mm_storeu_si128((__m128i*)block_data, block_array[block_idx]);
+            uint64_t block_data_low = block_data[0];
+            uint64_t block_data_high = block_data[1];
+            
+            // 从当前block中提取多个值
+            for (int32_t i = 0; i < values_per_block; i++) {
+                int32_t value_idx = block_idx * values_per_block + i;
+                
+                if (value_idx < dim) {
+                    int32_t bit_offset = i * bwA;
+                    uint64_t value = 0;
+                    
+                    if (bit_offset < 64) {
+                        // 值从低64位开始
+                        if (bit_offset + bwA <= 64) {
+                            // 完全在低64位内
+                            uint64_t mask = (bwA == 64) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << bwA) - 1);
+                            value = (block_data_low >> bit_offset) & mask;
+                        } else {
+                            // 跨越低64位和高64位
+                            int32_t bits_in_low = 64 - bit_offset;
+                            int32_t bits_in_high = bwA - bits_in_low;
+                            uint64_t low_part = (block_data_low >> bit_offset);
+                            uint64_t high_mask = (bits_in_high == 64) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << bits_in_high) - 1);
+                            uint64_t high_part = (block_data_high & high_mask) << bits_in_low;
+                            value = low_part | high_part;
+                        }
+                    } else {
+                        // 值完全在高64位
+                        uint64_t mask = (bwA == 64) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << bwA) - 1);
+                        value = (block_data_high >> (bit_offset - 64)) & mask;
+                    }
+                    
+                    A_random[value_idx] = value;
+                }
+            }
+        }
+        
+        return A_random;
+    }
+    
+
+
+
+
+// 矩阵是m*n大小，vector是m长。矩阵的i行都需要与vector中的i项做crossterm，但是为了降低轮数，mn矩阵和m*1的vector要一起做crossterm。
+// crossterm中inA和inB不是share值，但outC是share值（输出类似cot）。
+    void GeometricPerspectiveProtocols::matrix_vector_crossterm(int32_t m,int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
+        int32_t bwA, int32_t bwB) {
+            int32_t bwC = bwA + bwB;
+
+    //step 0 alice生成一组m*n的随机数 random。再将随机数与inA相加得到inA_random。
+
+
+
+    //step 1 将random 和inA_random encode成block128格式得到random_encode128和inA_random_encode128(因为AES加密需要使用block128格式)
+
+
+    //step 2 生成aes加密密钥key_random和key_inA_random
+    //step 2.1 将random_encode128和inA_random_encode128使用aes加密成密文enc_random和enc_inA_random
+
+    //step 3 将enc_random和enc_inA_random发送给bob
+
+    //step 4 alice调用otpack->iknp_straight->send，输入m个（key_random，key_inA_random）pair
+    //step 4.1 bob调用otpack->iknp_straight->recv，输入m个choice bit
+
+    //step 5 bob根据输入的choice bit，使用拿到的密钥解密拿到的密文enc_random和enc_inA_random，得到明文random和inA_random
+
+    //step 6 将random和inA_random decode成uint64_t格式得到random_decode和inA_random_decode
+
+    //step 7 alice和bob执行outC +=  参考sirnn crossterm
+
+
+    // 循环上面步骤，bob更改选择bit
+
+
+
+
+    
+    }
+// 矩阵是m*n大小，vector是m长。矩阵的i行都需要与vector中的i项做乘法，但是为了降低轮数，mn矩阵和m*1的vector要一起做乘法。
+// inA和inB都是share值，outC是也是share值
+// 写mul之前要先写matrix_vectorcrossterm和crossterm reverse
+    void GeometricPerspectiveProtocols::matrix_vector_mul(int32_t m,int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
+    int32_t bwA, int32_t bwB, int32_t bwC) {
+
+
+    }
+

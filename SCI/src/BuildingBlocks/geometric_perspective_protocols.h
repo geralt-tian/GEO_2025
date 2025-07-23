@@ -9,6 +9,7 @@
 #include "Millionaire/millionaire_with_equality.h"
 #include "NonLinear/relu-ring.h"
 #include "OT/emp-ot.h"
+#include "utils/aes-ni.h"
 
 class GeometricPerspectiveProtocols {
 
@@ -74,6 +75,30 @@ class GeometricPerspectiveProtocols {
         void exp_nagx(int32_t dim, uint64_t *inA, uint64_t *result, int32_t in_bw,int32_t in_f, 
             int32_t localexp_bw, int32_t localexp_f, int32_t locallut_bw, int32_t locallut_f);
 
+        void vector_bit_mul(int32_t dim, uint64_t *inA, uint8_t ot_choice, uint64_t *outC,
+        int32_t bwA);
+
+        void vector_bit_mul_reverse(int32_t dim, uint64_t *inA, uint8_t ot_choice, uint64_t *outC,
+        int32_t bwA);
+
+        // 🔥 新增：A_random数组与block128转换函数
+        
+        // 将A_random数组编码为block128数组（支持任意位宽bwA，末尾补零）
+        sci::block128* encode_A_random_to_blocks(
+            const uint64_t* A_random, int32_t dim, int32_t bwA);
+        
+        // 从block128数组解码回A_random数组
+        uint64_t* decode_blocks_to_A_random(
+            const sci::block128* block_array, int32_t dim, int32_t bwA);
+
+        void vector_scalar_mul(int32_t dim, uint64_t *inA, uint64_t *inB, uint64_t *outC,
+        int32_t bwA, int32_t bwB, int32_t bwC);
+        
+        void matrix_vector_crossterm(int32_t m,int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
+        int32_t bwA, int32_t bwB);
+
+        void matrix_vector_mul(int32_t m,int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
+        int32_t bwA, int32_t bwB, int32_t bwC);
         
 
 
