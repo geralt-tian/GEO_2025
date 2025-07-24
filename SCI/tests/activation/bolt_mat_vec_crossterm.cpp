@@ -125,9 +125,11 @@ int main(int argc, char **argv) {
 
     // Call the matrix_vector_crossterm function
     if (party == sci::ALICE) {
-        gp->matrix_vector_crossterm(m, n, inA, nullptr, outC, bwA, bwB);
+        // gp->matrix_vector_crossterm(m, n, inA, nullptr, outC, bwA, bwB);
+        gp->matrix_vector_crossterm_reverse(m, n, nullptr, inB, outC, bwA, bwB);
     } else {
-        gp->matrix_vector_crossterm(m, n, nullptr, inB, outC, bwA, bwB);
+        // gp->matrix_vector_crossterm(m, n, nullptr, inB, outC, bwA, bwB);
+        gp->matrix_vector_crossterm_reverse(m, n, inA, nullptr, outC, bwA, bwB);
     }
 
     auto end_time = chrono::high_resolution_clock::now();

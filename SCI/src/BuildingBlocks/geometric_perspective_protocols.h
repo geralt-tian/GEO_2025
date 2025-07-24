@@ -103,9 +103,14 @@ class GeometricPerspectiveProtocols {
         void matrix_vector_crossterm(int32_t m,int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
         int32_t bwA, int32_t bwB);
 
+        void matrix_vector_crossterm_reverse(int32_t m,int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
+        int32_t bwA, int32_t bwB);
+
         void matrix_vector_mul(int32_t m,int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
         int32_t bwA, int32_t bwB, int32_t bwC);
         
+        void matrix_vector_unsigned_mul(int32_t m,int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
+        int32_t bwA, int32_t bwB, int32_t bwC);
 
 
 };
