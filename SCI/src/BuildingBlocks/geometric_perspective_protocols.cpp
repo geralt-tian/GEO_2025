@@ -1466,6 +1466,122 @@ void GeometricPerspectiveProtocols::exp_nagx(int32_t dim, uint64_t *inA, uint64_
 
 
 
+    // 🔥 新增：将m*n矩阵按行编码为m*total_blocks_per_row个block128
+    sci::block128* GeometricPerspectiveProtocols::encode_matrix_to_blocks(
+        const uint64_t* matrix, int32_t m, int32_t n, int32_t bwA) {
+        
+        int32_t values_per_block = 128 / bwA;
+        int32_t total_blocks_per_row = (n + values_per_block - 1) / values_per_block;
+        int32_t total_blocks = m * total_blocks_per_row;
+        
+        // 分配block128数组
+        sci::block128* block_array = new sci::block128[total_blocks];
+        
+        // 逐行处理矩阵
+        for (int32_t row = 0; row < m; row++) {
+            // 处理当前行的每个block
+            for (int32_t block_idx = 0; block_idx < total_blocks_per_row; block_idx++) {
+                // 初始化当前block为0
+                uint64_t block_data_low = 0;
+                uint64_t block_data_high = 0;
+                
+                // 在当前block中打包多个值
+                for (int32_t i = 0; i < values_per_block; i++) {
+                    int32_t col = block_idx * values_per_block + i;
+                    
+                    if (col < n) {
+                        uint64_t value = matrix[row * n + col];  // 矩阵元素 matrix[row][col]
+                        int32_t bit_offset = i * bwA;
+                        
+                        if (bit_offset < 64) {
+                            // 值放在低64位
+                            if (bit_offset + bwA <= 64) {
+                                // 完全在低64位内
+                                block_data_low |= (value << bit_offset);
+                            } else {
+                                // 跨越低64位和高64位
+                                int32_t bits_in_low = 64 - bit_offset;
+                                int32_t bits_in_high = bwA - bits_in_low;
+                                block_data_low |= (value << bit_offset);
+                                block_data_high |= (value >> bits_in_low);
+                            }
+                        } else {
+                            // 值完全在高64位
+                            block_data_high |= (value << (bit_offset - 64));
+                        }
+                    }
+                }
+                
+                // 创建block128并存储到对应位置
+                int32_t block_global_idx = row * total_blocks_per_row + block_idx;
+                block_array[block_global_idx] = sci::makeBlock128(block_data_high, block_data_low);
+            }
+        }
+        
+        return block_array;
+    }
+
+    // 🔥 新增：将m*total_blocks_per_row个block128解码回m*n矩阵
+    uint64_t* GeometricPerspectiveProtocols::decode_blocks_to_matrix(
+        const sci::block128* block_array, int32_t m, int32_t n, int32_t bwA) {
+        
+        int32_t values_per_block = 128 / bwA;
+        int32_t total_blocks_per_row = (n + values_per_block - 1) / values_per_block;
+        
+        // 分配矩阵数组
+        uint64_t* matrix = new uint64_t[m * n];
+        
+        // 逐行处理
+        for (int32_t row = 0; row < m; row++) {
+            // 处理当前行的每个block
+            for (int32_t block_idx = 0; block_idx < total_blocks_per_row; block_idx++) {
+                // 获取当前block的全局索引
+                int32_t block_global_idx = row * total_blocks_per_row + block_idx;
+                
+                // 提取当前block的数据
+                uint64_t block_data[2];
+                _mm_storeu_si128((__m128i*)block_data, block_array[block_global_idx]);
+                uint64_t block_data_low = block_data[0];
+                uint64_t block_data_high = block_data[1];
+                
+                // 从当前block中提取多个值
+                for (int32_t i = 0; i < values_per_block; i++) {
+                    int32_t col = block_idx * values_per_block + i;
+                    
+                    if (col < n) {
+                        int32_t bit_offset = i * bwA;
+                        uint64_t value = 0;
+                        
+                        if (bit_offset < 64) {
+                            // 值从低64位开始
+                            if (bit_offset + bwA <= 64) {
+                                // 完全在低64位内
+                                uint64_t mask = (bwA == 64) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << bwA) - 1);
+                                value = (block_data_low >> bit_offset) & mask;
+                            } else {
+                                // 跨越低64位和高64位
+                                int32_t bits_in_low = 64 - bit_offset;
+                                int32_t bits_in_high = bwA - bits_in_low;
+                                uint64_t low_part = (block_data_low >> bit_offset);
+                                uint64_t high_mask = (bits_in_high == 64) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << bits_in_high) - 1);
+                                uint64_t high_part = (block_data_high & high_mask) << bits_in_low;
+                                value = low_part | high_part;
+                            }
+                        } else {
+                            // 值完全在高64位
+                            uint64_t mask = (bwA == 64) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << bwA) - 1);
+                            value = (block_data_high >> (bit_offset - 64)) & mask;
+                        }
+                        
+                        matrix[row * n + col] = value;  // 存储到 matrix[row][col]
+                    }
+                }
+            }
+        }
+        
+        return matrix;
+    }
+
     // 🔥 新增：将A_random数组转换为block128数组（选项1：紧密打包多个值）
     sci::block128* GeometricPerspectiveProtocols::encode_A_random_to_blocks(
         const uint64_t* A_random, int32_t dim, int32_t bwA) {
@@ -1579,39 +1695,276 @@ void GeometricPerspectiveProtocols::exp_nagx(int32_t dim, uint64_t *inA, uint64_
 
 // 矩阵是m*n大小，vector是m长。矩阵的i行都需要与vector中的i项做crossterm，但是为了降低轮数，mn矩阵和m*1的vector要一起做crossterm。
 // crossterm中inA和inB不是share值，但outC是share值（输出类似cot）。
-    void GeometricPerspectiveProtocols::matrix_vector_crossterm(int32_t m,int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
+        void GeometricPerspectiveProtocols::matrix_vector_crossterm(int32_t m,int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
         int32_t bwA, int32_t bwB) {
             int32_t bwC = bwA + bwB;
+        uint64_t maskA = (1ULL << bwA) - 1;
+        uint64_t maskC = (1ULL << bwC) - 1;  // 修复：使用正确的输出掩码
+        
+        // 修复：将变量定义移到正确的作用域，避免重复分配
+        uint64_t *random = nullptr;
+        uint64_t *inA_random = nullptr;
+        sci::block128 *random_blocks = nullptr;
+        sci::block128 *inA_random_blocks = nullptr;
+        sci::AESNI_KEY* key_random_array = nullptr;
+        sci::AESNI_KEY* key_inA_random_array = nullptr;
+        unsigned char (*key_bytes_random)[16] = nullptr;
+        unsigned char (*key_bytes_inA_random)[16] = nullptr;
+        
+        // 初始化输出数组
+        for (int i = 0; i < m*n; i++) {
+            outC[i] = 0;
+        }
+        
+        for (int bit_inB = 0; bit_inB < bwB; bit_inB++) {
+            int32_t target_bw = bwC - bit_inB;
+            uint64_t target_mask = (target_bw >= 64) ? -1ULL : ((1ULL << target_bw) - 1);
+            
+            // 修复：每轮根据 target_bw 重新计算 block 参数
+            int32_t values_per_block = 128 / target_bw;  // 每个block128可以装多少个值
+            int32_t total_blocks_per_row = (n + values_per_block - 1) / values_per_block;  // 每行需要多少个block128
+            int32_t total_blocks = m * total_blocks_per_row;  // 总共需要的block128数量
+            
+    //step 0 alice每轮生成新的随机数 random。再将随机数与inA相加得到inA_random。
+        
+        if (party == sci::ALICE) {
+            // 修复：Alice只在第一轮初始化密钥和内存
+            if (bit_inB == 0) {
+                random = new uint64_t[m*n];
+                inA_random = new uint64_t[m*n];
+                
+                //step 2 生成m组aes加密密钥对，每行一对
+                key_random_array = new sci::AESNI_KEY[m];
+                key_inA_random_array = new sci::AESNI_KEY[m];
+                key_bytes_random = new unsigned char[m][16];
+                key_bytes_inA_random = new unsigned char[m][16];
+                
+                // 使用PRG生成真正的随机密钥
+                sci::PRG128 prg;
+                
+                // 为每一行生成不同的密钥对
+                for (int row = 0; row < m; row++) {
+                    // 生成16字节的随机密钥
+                    prg.random_data(key_bytes_random[row], 16);
+                    prg.random_data(key_bytes_inA_random[row], 16);
+                    
+                    // 设置AES密钥
+                    sci::AESNI_set_encrypt_key(&key_random_array[row], key_bytes_random[row], 16);
+                    sci::AESNI_set_encrypt_key(&key_inA_random_array[row], key_bytes_inA_random[row], 16);
+                }
+            }
+            
+            // 修复：每轮生成新的随机数（使用正确的位宽）
+            srand(1234 + bit_inB * 100 + party * 10);  // 使用固定种子+轮数+party保证可重现
+            for (int i = 0; i < m*n; i++) {
+                // 修复：使用 target_bw 位宽生成随机数
+                random[i] = (rand() % (target_mask + 1));
+                
+                // 修复：先将 inA[i] 从 bwA 位符号扩展到 target_bw 位
+                uint64_t extended_inA = inA[i] & maskA;
+                // 修复：在 target_bw 位环中计算 inA_random
+                inA_random[i] = (extended_inA + random[i]) & target_mask;
+            }
 
-    //step 0 alice生成一组m*n的随机数 random。再将随机数与inA相加得到inA_random。
+            //step 1 将random 和inA_random encode成block128格式
+            // 修复：每轮都重新释放和分配blocks
+            if (bit_inB > 0) {
+                delete[] random_blocks;
+                delete[] inA_random_blocks;
+            }
+            // 修复：使用 target_bw 位宽进行编码
+            random_blocks = encode_matrix_to_blocks(random, m, n, target_bw);
+            inA_random_blocks = encode_matrix_to_blocks(inA_random, m, n, target_bw);
+            
+            //step 2.1 将random_blocks和inA_random_blocks逐行使用对应密钥加密
+            // 对每一行的blocks进行加密
+            for (int row = 0; row < m; row++) {
+                // 计算当前行在block数组中的起始位置
+                int row_start_idx = row * total_blocks_per_row;
+                
+                // 加密当前行的random_blocks
+                sci::AESNI_ecb_encrypt_blks(&random_blocks[row_start_idx], 
+                                           total_blocks_per_row, 
+                                           &key_random_array[row]);
+                
+                // 加密当前行的inA_random_blocks  
+                sci::AESNI_ecb_encrypt_blks(&inA_random_blocks[row_start_idx], 
+                                           total_blocks_per_row, 
+                                           &key_inA_random_array[row]);
+            }
+            
+            printf("Generated %d key pairs and encrypted %d total blocks for bit_inB=%d\n", m, total_blocks, bit_inB);
+        }
+        
+        //step 3 将enc_random和enc_inA_random发送给bob
+        
+        sci::block128* received_enc_random = new sci::block128[total_blocks]; //bob收到的密文
+        sci::block128* received_enc_inA_random = new sci::block128[total_blocks];
+        if (party == sci::ALICE) {
+            iopack->io->send_data(random_blocks, total_blocks * sizeof(sci::block128));
+            iopack->io->send_data(inA_random_blocks, total_blocks * sizeof(sci::block128));
+        } else {
+            iopack->io->recv_data(received_enc_random, total_blocks * sizeof(sci::block128));
+            iopack->io->recv_data(received_enc_inA_random, total_blocks * sizeof(sci::block128));
+        }
 
-
-
-    //step 1 将random 和inA_random encode成block128格式得到random_encode128和inA_random_encode128(因为AES加密需要使用block128格式)
-
-
-    //step 2 生成aes加密密钥key_random和key_inA_random
-    //step 2.1 将random_encode128和inA_random_encode128使用aes加密成密文enc_random和enc_inA_random
-
-    //step 3 将enc_random和enc_inA_random发送给bob
 
     //step 4 alice调用otpack->iknp_straight->send，输入m个（key_random，key_inA_random）pair
     //step 4.1 bob调用otpack->iknp_straight->recv，输入m个choice bit
+    sci::block128 received_key_block[m];
+    bool ot_choice_bool[m];
+    if (party == sci::ALICE) {
+        sci::block128 ot_data0[m];
+        sci::block128 ot_data1[m];
+        
+        // 修复：传输原始16字节密钥而不是AESNI_KEY结构体
+        for (int i = 0; i < m; i++) {
+            ot_data0[i] = _mm_loadu_si128((__m128i*)key_bytes_random[i]);   // 选择0的密钥
+            ot_data1[i] = _mm_loadu_si128((__m128i*)key_bytes_inA_random[i]); // 选择1的密钥
+        }
+        otpack->iknp_straight->send(ot_data0, ot_data1, m);
+    }
+    else {
+        for (int i = 0; i < m; i++) {
+            ot_choice_bool[i] = ((inB[i] >> bit_inB) & 1);  // 获取inB[i]的第bit_inB位
+        }
+        otpack->iknp_straight->recv(received_key_block, ot_choice_bool, m);
+    }
 
     //step 5 bob根据输入的choice bit，使用拿到的密钥解密拿到的密文enc_random和enc_inA_random，得到明文random和inA_random
+    // 修复：将变量定义移到正确的作用域
+    sci::block128* decrypted_blocks = new sci::block128[total_blocks];
+    sci::AESNI_KEY received_decrypt_key[m];
+    uint64_t* decoded_data = nullptr;  // 修复：在外层定义
 
-    //step 6 将random和inA_random decode成uint64_t格式得到random_decode和inA_random_decode
+    if (party == sci::BOB) {
+        // 为每一行生成解密密钥
+        for (int row = 0; row < m; row++) {
+            unsigned char key_bytes[16];
+            _mm_storeu_si128((__m128i*)key_bytes, received_key_block[row]);
+            sci::AESNI_set_decrypt_key(&received_decrypt_key[row], key_bytes, 16);
+        }
 
+        // 逐行解密数据
+        for (int row = 0; row < m; row++) {
+            int row_start_idx = row * total_blocks_per_row;
+            
+            // 根据选择位解密对应的密文
+            if (ot_choice_bool[row] == 0) {
+                // 解密random数据
+                for(int j = 0; j < total_blocks_per_row; j++) {
+                    decrypted_blocks[row_start_idx + j] = received_enc_random[row_start_idx + j];
+                }
+                sci::AESNI_ecb_decrypt_blks(&decrypted_blocks[row_start_idx], total_blocks_per_row, &received_decrypt_key[row]);
+            } else {
+                // 解密inA_random数据
+                for(int j = 0; j < total_blocks_per_row; j++) {
+                    decrypted_blocks[row_start_idx + j] = received_enc_inA_random[row_start_idx + j];
+                }
+                sci::AESNI_ecb_decrypt_blks(&decrypted_blocks[row_start_idx], total_blocks_per_row, &received_decrypt_key[row]);
+            }
+        }
+
+        // 将解密后的block128数据解码为uint64_t格式
+        //step 6 将random和inA_random decode成uint64_t格式得到decoded_data
+        // 修复：使用 target_bw 位宽进行解码
+        decoded_data = decode_blocks_to_matrix(decrypted_blocks, m, n, target_bw);
+    }
     //step 7 alice和bob执行outC +=  参考sirnn crossterm
+    if (party == sci::ALICE) {
+        uint64_t val0 = 0;
+        for (int i = 0; i < m*n; i++) {
+            // 修复：random[i] 已经是 target_bw 位宽，直接取负值
+            uint64_t val = (-random[i]) & target_mask;
+            
+            if (i == 0) {
+                val0 = val;
+            }
+            // 左移后正好是 bwC 位
+            val = (val * (1ULL << bit_inB)) & maskC;
+            outC[i] += val;
+            outC[i] &= maskC;  // 最终在bwC位环中取模
+        }
+        printf("ALICE bit_inB: %d\n", bit_inB);
+        printf("alice random[0]: %lu\n", random[0]);
+        printf("alice inA_random[0]: %lu\n", inA_random[0]);
+        
+        // 修复：正确打印16字节密钥的前4字节
+        printf("alice key_bytes_random[0]: 0x%02x%02x%02x%02x\n", 
+               key_bytes_random[0][0], key_bytes_random[0][1], 
+               key_bytes_random[0][2], key_bytes_random[0][3]);
+        printf("alice key_bytes_inA_random[0]: 0x%02x%02x%02x%02x\n", 
+               key_bytes_inA_random[0][0], key_bytes_inA_random[0][1], 
+               key_bytes_inA_random[0][2], key_bytes_inA_random[0][3]);
+        // 修复：正确打印block128的64位部分
+        uint64_t enc_random_data[2];
+        _mm_storeu_si128((__m128i*)enc_random_data, random_blocks[0]);
+        printf("alice random_blocks[0]: 0x%016llx%016llx\n", enc_random_data[1], enc_random_data[0]);
+        // printf("(val * (1ULL << bit_inB)): %lu\n", (val * (1ULL << bit_inB)));
+        // printf("alice inA_random_blocks[0] * (1ULL << bit_inB): 0x%016llx%016llx\n", inA_random_blocks[1] * (1ULL << bit_inB), inA_random_blocks[0] * (1ULL << bit_inB));
+        printf("alice val0: %lu\n", val0);
+        printf("alice outC[0]: %lu\n", outC[0]);
+        printf("ALICE //////////////////////////////////////\n");
+    }
+    else {
+        uint64_t val0 = 0;
+        for (int i = 0; i < m*n; i++) {
+            // 修复：decoded_data[i] 已经是 target_bw 位宽，直接使用
+            uint64_t val = decoded_data[i] & target_mask;
+            
+            if (i == 0) {
+                val0 = val;
+            }
+            // 左移后正好是 bwC 位
+            val = (val * (1ULL << bit_inB)) & maskC;
+
+            outC[i] += val;
+            outC[i] &= maskC;  // 最终在bwC位环中取模
+        }
+        
+        printf("BOB bit_inB: %d\n", bit_inB);
+        printf("bob ot_choice_bool[0]: %d\n", ot_choice_bool[0]);
+        // 修复：正确打印接收到的密钥
+        unsigned char received_key_bytes[16];
+        _mm_storeu_si128((__m128i*)received_key_bytes, received_key_block[0]);
+        printf("bob received_key: 0x%02x%02x%02x%02x\n", 
+               received_key_bytes[0], received_key_bytes[1], 
+               received_key_bytes[2], received_key_bytes[3]);
+        // 修复：正确打印解密后的数据
+        if (decoded_data != nullptr) {
+            printf("bob decoded_data[0]: %lu\n", decoded_data[0]);
+        }
+        printf("bob val0: %lu\n", val0);
+        // printf("bob (val * (1ULL << bit_inB)): %lu\n", (val * (1ULL << bit_inB)));
+        printf("bob outC[0]: %lu\n", outC[0]);
+        printf("BOB //////////////////////////////////////\n");
+    }
+    
+    // 修复：正确的内存管理
+    if (party == sci::BOB && decoded_data != nullptr) {
+        delete[] decoded_data;
+    }
+    delete[] decrypted_blocks;
 
 
     // 循环上面步骤，bob更改选择bit
-
-
-
-
-    
     }
+    
+    // 修复：在最后清理所有分配的内存
+    if (party == sci::ALICE) {
+        if (random != nullptr) delete[] random;
+        if (inA_random != nullptr) delete[] inA_random;
+        if (random_blocks != nullptr) delete[] random_blocks;
+        if (inA_random_blocks != nullptr) delete[] inA_random_blocks;
+        if (key_random_array != nullptr) delete[] key_random_array;
+        if (key_inA_random_array != nullptr) delete[] key_inA_random_array;
+        if (key_bytes_random != nullptr) delete[] key_bytes_random;
+        if (key_bytes_inA_random != nullptr) delete[] key_bytes_inA_random;
+    }
+}
+
+
+
 // 矩阵是m*n大小，vector是m长。矩阵的i行都需要与vector中的i项做乘法，但是为了降低轮数，mn矩阵和m*1的vector要一起做乘法。
 // inA和inB都是share值，outC是也是share值
 // 写mul之前要先写matrix_vectorcrossterm和crossterm reverse

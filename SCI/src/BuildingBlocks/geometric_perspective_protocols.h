@@ -93,6 +93,12 @@ class GeometricPerspectiveProtocols {
 
         void vector_scalar_mul(int32_t dim, uint64_t *inA, uint64_t *inB, uint64_t *outC,
         int32_t bwA, int32_t bwB, int32_t bwC);
+
+        sci::block128* encode_matrix_to_blocks(const uint64_t* matrix, int32_t m, int32_t n, int32_t bwA);
+
+        uint64_t* decode_blocks_to_matrix(const sci::block128* block_array, int32_t m, int32_t n, int32_t bwA);
+
+
         
         void matrix_vector_crossterm(int32_t m,int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
         int32_t bwA, int32_t bwB);

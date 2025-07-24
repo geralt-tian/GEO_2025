@@ -17,6 +17,7 @@ add_test_IRON(tanh)
 
 add_test_BOLT(128ot)
 add_test_BOLT(vector_scalar_mul)
+add_test_BOLT(mat_vec_crossterm)
 add_test_BOLT(softmax)
 add_test_BOLT(softmax_ours)
 add_test_BOLT(gelu)
