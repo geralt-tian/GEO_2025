@@ -23,6 +23,7 @@ SOFTWARE.
 #include "FloatingPoint/fp-math-coeffs.h"
 #include "utils/io_pack.h"
 #include <cstddef>
+#include <cmath>
 using namespace std;
 using namespace sci;
 
@@ -1266,6 +1267,8 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix(const vector<FixArray
 
   FixArray x_flat = concat(x);
   FixArray shifted_x_flat = fix->sub(x_flat, x_max_flat);
+  printf("shifted_x_flat.ell: %d\n", shifted_x_flat.ell);
+  printf("shifted_x_flat.s: %d\n", shifted_x_flat.s);
 
   FixArray e_x_flat;
   FixArray l_short;
@@ -1309,7 +1312,92 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix(const vector<FixArray
   
   sum_e_x.signed_ = false;
   size_t comm_start_div = iopack->get_comm(); 
+
+  // Alice sends e_x_flat to Bob for checking negative values
+  vector<int> negative_indices;
+  int num_negatives = 0;
+  
+  if (party == sci::ALICE) {
+    iopack->io->send_data(e_x_flat.data, e_x_flat.size * sizeof(uint64_t));
+  } else { // Bob
+    uint64_t *alice_shares = new uint64_t[e_x_flat.size];
+    iopack->io->recv_data(alice_shares, e_x_flat.size * sizeof(uint64_t));
+    
+    uint64_t mask = (1ULL << e_x_flat.ell) - 1;
+    
+    for (int i = 0; i < e_x_flat.size; i++) {
+      uint64_t reconstructed = (alice_shares[i] + e_x_flat.data[i]) & mask;
+      // Check if it's negative (MSB is 1 for signed numbers)
+      if (reconstructed >= (1ULL << (e_x_flat.ell - 1))) {
+        negative_indices.push_back(i);
+        printf("Found negative at index %d: reconstructed e_x_flat = %lu (signed: %ld)\n", 
+               i, reconstructed, (int64_t)reconstructed - (reconstructed >= (1ULL << (e_x_flat.ell - 1)) ? (1ULL << e_x_flat.ell) : 0));
+        printf("shifted_x_flat.data[%d]: %d\n", i, shifted_x_flat.data[i]);
+      }
+    }
+    
+    // Send number of negative values found
+    num_negatives = negative_indices.size();
+    iopack->io->send_data(&num_negatives, sizeof(int));
+    
+    // Send negative indices to Alice
+    if (num_negatives > 0) {
+      iopack->io->send_data(negative_indices.data(), num_negatives * sizeof(int));
+    }
+    
+    delete[] alice_shares;
+  }
+  
+  // Alice receives negative indices and sends corresponding shifted_x_flat shares
+  if (party == sci::ALICE) {
+    iopack->io->recv_data(&num_negatives, sizeof(int));
+    
+    if (num_negatives > 0) {
+      negative_indices.resize(num_negatives);
+      iopack->io->recv_data(negative_indices.data(), num_negatives * sizeof(int));
+      
+      printf("Alice found %d negative values, sending corresponding shifted_x_flat.data to Bob\n", num_negatives);
+      
+      // Send Alice's shares of shifted_x_flat.data for negative indices
+      vector<uint64_t> alice_shifted_shares(num_negatives);
+      for (int i = 0; i < num_negatives; i++) {
+        int idx = negative_indices[i];
+        alice_shifted_shares[i] = shifted_x_flat.data[idx];
+        printf("Sending shifted_x_flat.data[%d] = %lu to Bob\n", idx, shifted_x_flat.data[idx]);
+      }
+      iopack->io->send_data(alice_shifted_shares.data(), num_negatives * sizeof(uint64_t));
+    } else {
+      printf("No negative values found in e_x_flat\n");
+    }
+  }
+  
+  // Bob reconstructs shifted_x_flat values for negative indices
+  if (party == sci::BOB && num_negatives > 0) {
+    vector<uint64_t> alice_shifted_shares(num_negatives);
+    iopack->io->recv_data(alice_shifted_shares.data(), num_negatives * sizeof(uint64_t));
+    
+    uint64_t shifted_mask = (1ULL << shifted_x_flat.ell) - 1;
+    printf("Bob reconstructing shifted_x_flat values:\n");
+    
+    for (int i = 0; i < num_negatives; i++) {
+      int idx = negative_indices[i];
+      uint64_t reconstructed_shifted = (alice_shifted_shares[i] + shifted_x_flat.data[idx]) & shifted_mask;
+      
+      // Convert to signed representation for shifted_x_flat
+      int64_t signed_shifted_val = (int64_t)reconstructed_shifted;
+      if (reconstructed_shifted >= (1ULL << (shifted_x_flat.ell - 1))) {
+        signed_shifted_val -= (1ULL << shifted_x_flat.ell);
+      }
+      
+      printf("Index %d: reconstructed shifted_x_flat = %lu (signed: %ld)\n", 
+             idx, reconstructed_shifted, signed_shifted_val);
+    }
+  }
   FixArray ret_flat = fix->div_batch(e_x_flat, sum_e_x, n ,exp_ell, s);
+
+  printf("n: %d\n", n);
+  printf("exp_ell: %d\n", exp_ell);
+  printf("s: %d\n", s);
   size_t comm_end_div = iopack->get_comm();
   std::cout << "div comm: " << comm_end_div - comm_start_div << std::endl;
 
@@ -1430,32 +1518,99 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
   // FixArray x_max_flat = fix->input(PUBLIC, N*n, 10<<s, signed_, ell, s);
   // print_fix(x_max_flat);
   // assert(0);
-
+  
   FixArray x_flat = concat(x);
   FixArray shifted_x_flat = fix->sub(x_flat, x_max_flat);
-
+  uint64_t mask_exp_input = (1ULL << shifted_x_flat.ell) - 1;
+  printf("shifted_x_flat.ell = %d\n", shifted_x_flat.ell);
+  printf("shifted_x_flat.s = %d\n", shifted_x_flat.s);
+  if (party == sci::ALICE){
+    for (int i = 0; i < N*n; i++){
+      shifted_x_flat.data[i] = (shifted_x_flat.data[i] - 1) & mask_exp_input;//shifted_x_flat<=0 ???这里想要减一来避免exp^0，但是有很多报错
+    }
+  }else{
+    for (int i = 0; i < N*n; i++){
+      shifted_x_flat.data[i] = (shifted_x_flat.data[i]) & mask_exp_input;//shifted_x_flat<=0 ???这里想要减一来避免exp^0，但是有很多报错
+    }
+  }
+  for (int i = 0; i < N*n; i++){
+    printf("shifted_x_flat.data[%d] = %lu\n", i, shifted_x_flat.data[i]);
+  }
+  // printf("shifted_x_flat.data[34] = %lu\n", shifted_x_flat.data[34]);
   FixArray l_short;
+  // FixArray e_x_flat;
+  // tie(e_x_flat, l_short) = exp4(shifted_x_flat);
 
-  // this->gp->exp_nagx(int32_t dim, uint64_t *inA, uint64_t *result, int32_t in_bw,int32_t in_f, 
-  //  int32_t localexp_bw, int32_t localexp_f, int32_t locallut_bw, int32_t locallut_f);
 
   uint64_t *output = new uint64_t[N*n];
-  this->gp->exp_nagx(N*n, shifted_x_flat.data, output, ell, s, 23, 10, 34, 32);
+  printf("shifted_x_flat.data[384] = %lu\n", shifted_x_flat.data[384]);
+  this->gp->exp_softmaxx(N*n, shifted_x_flat.data, output, ell, s, 23, 10, 34, 32);
 
-  printf("exp_nagx done.\n");
-  
+
+  /////////////////////////////////exp ULP test
+  // if (party == sci::ALICE){
+  //   iopack->io->send_data(shifted_x_flat.data, N*n * sizeof(uint64_t));
+  //   iopack->io->send_data(output, N*n * sizeof(uint64_t));
+  // }
+  // else{
+  //   uint64_t *alice_shifted_shares = new uint64_t[N*n];
+  //   iopack->io->recv_data(alice_shifted_shares, N*n * sizeof(uint64_t));
+  //   uint64_t *alice_output = new uint64_t[N*n];
+  //   iopack->io->recv_data(alice_output, N*n * sizeof(uint64_t));
+  //   for (int i = 0; i < N*n; i++){
+  //     alice_shifted_shares[i] = (alice_shifted_shares[i] + shifted_x_flat.data[i]) & mask_exp_input;
+  //     printf("pl_shifted_shares[%d] = %lu\n", i, alice_shifted_shares[i]);
+
+  //     // 输出inf是因为指数太大导致溢出
+  //     // alice_shifted_shares[i]是定点数,需要先减去2^37来还原负数,再除以2^12(4096)转换为浮点数
+  //     // 这样计算出的指数可能非常大,导致exp计算结果超出float范围变成inf
+  //     int64_t alice_shifted_shares_int = alice_shifted_shares[i] -137438953472;
+      
+  //     double exp_input = (alice_shifted_shares_int)/4096.0;
+  //     printf("exp input = %f, exp output = %f\n", exp_input, std::exp(exp_input));
+  //     alice_output[i] = (alice_output[i] + output[i]) & mask_exp_input;
+  //     printf("pl_output[%d] = %lu\n", i, alice_output[i]);
+  //     printf("%f\n", (alice_output[i])/4096.0);
+  //     // Calculate ULP difference between (alice_output[i])/4096.0 and std::exp(exp_input)
+  //     double actual = (alice_output[i])/4096.0;
+  //     double expected = std::exp(exp_input);
+      
+  //     // Scale both numbers by 2^12 (4096) to compare at 12-bit precision
+  //     int64_t actual_scaled = (int64_t)(actual * 4096);
+  //     int64_t expected_scaled = (int64_t)(expected * 4096);
+      
+  //     int64_t ulp_diff = std::abs(actual_scaled - expected_scaled);
+  //     printf("ULP difference at 12-bit precision: %ld\n", ulp_diff);
+  //   }
+  //   delete[] alice_shifted_shares;
+  //   delete[] alice_output;
+  // }
+  printf("output[384] = %lu\n", output[384]);
+     
+
   // 正确初始化 e_x_flat
   FixArray e_x_flat(party, N*n, signed_, ell, s);
   for (int i = 0; i < N*n; i++){
     e_x_flat.data[i] = output[i];
   }
-  printf("e_x_flat.data[i] = output[i];\n");
+  // printf("e_x_flat.data[i] = output[i];\n");
 
   // tie(e_x_flat, l_short) = exp_ours(shifted_x_flat); //l_short is not used
   // FixArray e_x_flat = shifted_x_flat;
 
+  for (int i = 0; i < N*n; i++){
+    printf("e_x_flat111.data[%d] = %lu\n", i, e_x_flat.data[i]);
+  }
+
   int exp_ell = 19;
   e_x_flat = fix->reduce(e_x_flat, exp_ell);
+
+
+  for (int i = 0; i < N*n; i++){
+    printf("shifted_x_flat.data[%d] = %lu\n", i, shifted_x_flat.data[i]);
+    printf("e_x_flat222.data[%d] = %lu\n", i, e_x_flat.data[i]);
+  }
+
 
   vector<FixArray> e_x_tr(n);
   for (int i = 0; i < n; i++) {
@@ -1487,6 +1642,9 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
   }
   
   sum_e_x.signed_ = false;
+  printf("sum_e_x.data[0] = %lu\n", sum_e_x.data[0]);
+  printf("sum_e_x.ell = %d\n", sum_e_x.ell);
+  printf("sum_e_x.s = %d\n", sum_e_x.s);
   FixArray ret_flat = fix->div_batch(e_x_flat, sum_e_x, n ,exp_ell, s);
 
   BoolArray all_0 = bool_op->input(ALICE, N, uint8_t(0));
@@ -2205,4 +2363,4 @@ tuple<FixArray, FixArray, FixArray> FPMath::bitonic_sort_and_swap(
     }
 
     return make_tuple(x, softmax_v, h1);
-}
+  }

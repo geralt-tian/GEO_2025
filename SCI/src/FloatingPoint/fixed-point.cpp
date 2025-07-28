@@ -1075,6 +1075,7 @@ FixArray FixOp::div(const FixArray& nm, const FixArray& dn, int l_out, int s_out
   }
 }
 
+//batch_dn_size是列数
 FixArray FixOp::div_batch(const FixArray& nm, const FixArray& dn, int batch_dn_size, int l_out, int s_out, bool normalized_dn) {
   if (!normalized_dn) assert(dn.signed_ == false);
   assert(nm.party != PUBLIC && dn.party != PUBLIC);
@@ -1084,7 +1085,7 @@ FixArray FixOp::div_batch(const FixArray& nm, const FixArray& dn, int batch_dn_s
   BoolArray all_1 = bool_op->input(ALICE, dn.size, uint8_t(1));
 
   FixArray nrmlzd_dn;
-  FixArray adjust = fix->input(PUBLIC, dn.size, uint64_t(0), false, dn.ell + 1, 0);
+  FixArray adjust = fix->input(PUBLIC, dn.size, uint64_t(0), false, dn.ell + 1, 0);// ell = dn.ell + 1 ,s = n.ell - 1 - dn.s
   // printf("adjust.party: %d\n", adjust.party); //这里还是public的
   if (!normalized_dn) {
     vector<FixArray> msnzb_one_hot = fix->msnzb_one_hot(dn, dn.ell + 1);
@@ -1102,6 +1103,12 @@ FixArray FixOp::div_batch(const FixArray& nm, const FixArray& dn, int batch_dn_s
       nrmlzd_dn = fix->reduce(dn, dn.s + 2);
     }
   }
+  // printf("adjust.ell: %d\n", adjust.ell);
+  // printf("adjust.s: %d\n", adjust.s);
+  // printf("dn.ell: %d\n", dn.ell);
+  // printf("dn.s: %d\n", dn.s);
+  // printf("nrmlzd_dn.ell: %d\n", nrmlzd_dn.ell);
+  // printf("nrmlzd_dn.s: %d\n", nrmlzd_dn.s);
 
   int32_t m, iters;
   m = (s_out <= 18 ? ceil((s_out - 2) / 2.0) : ceil((ceil(s_out / 2.0) - 2) / 2.0));
@@ -1131,12 +1138,41 @@ FixArray FixOp::div_batch(const FixArray& nm, const FixArray& dn, int batch_dn_s
                fix->extend(w, nrmlzd_dn.s + m + 4, all_0.data));
   w = fix->truncate_reduce(w, w.s - s_out);
 
+  printf("w.data[0] = %llu\n", w.data[0]);
+  printf("adjust.data[0] = %llu\n", adjust.data[0]);
+
   BoolArray msb_nm;
   uint8_t* msb_nm_data = nullptr;
   if (nm.signed_) {
     msb_nm = fix->MSB(nm);
     msb_nm_data = msb_nm.data;
   }
+  // printf("msb_nm.party: %d\n", msb_nm.party);
+  // printf("msb_nm.size: %d\n", msb_nm.size);
+  // printf("msb_nm.ell: %d\n", msb_nm.ell);
+  // printf("msb_nm.s: %d\n", msb_nm.s);
+  // if (party == sci::ALICE) {
+  //   // Alice sends her shares of nm and msb_nm to Bob
+  //   iopack->io->send_data(nm.data, msb_nm.size * sizeof(uint64_t));
+  //   iopack->io->send_data(msb_nm.data, msb_nm.size * sizeof(uint8_t));
+  // } else {
+  //   // Bob receives Alice's shares
+  //   uint64_t *alice_nm_shares = new uint64_t[msb_nm.size];
+  //   uint8_t *alice_msb_shares = new uint8_t[msb_nm.size];
+  //   iopack->io->recv_data(alice_nm_shares, msb_nm.size * sizeof(uint64_t));
+  //   iopack->io->recv_data(alice_msb_shares, msb_nm.size * sizeof(uint8_t));
+    
+  //   // Bob reconstructs both values and checks MSB
+  //   for (int i = 0; i < msb_nm.size; i++) {
+  //     uint64_t reconstructed_nm = (alice_nm_shares[i] + nm.data[i]);
+  //     uint8_t reconstructed_msb = (alice_msb_shares[i] ^ msb_nm.data[i]);
+  //     if (reconstructed_msb == 1) {
+  //       printf("Value at index %d (MSB=1): %lu\n", i, reconstructed_nm);
+  //     }
+  //   }
+  //   delete[] alice_nm_shares;
+  //   delete[] alice_msb_shares;
+  // }
 
   // Change extend w and adjust here
   FixArray w_extend(party, nm.size, w.signed_, w.ell, w.s);
@@ -1152,19 +1188,64 @@ FixArray FixOp::div_batch(const FixArray& nm, const FixArray& dn, int batch_dn_s
   BoolArray all_0_dm = bool_op->input(ALICE, nm.size, uint8_t(0));
   // BoolArray all_1_dm = bool_op->input(ALICE, nm.size, uint8_t(1));
   // size_t comm_start_div = iopack->get_comm(); 
+  
+  // printf("nm.size: %d\n", nm.size);
+  // printf("nm.ell: %d\n", nm.ell);
+  // printf("nm.s: %d\n", nm.s);
+  // printf("w_extend.size: %d\n", w_extend.size);
+  // printf("w_extend.ell: %d\n", w_extend.ell);
+  // printf("w_extend.s: %d\n", w_extend.s);
+  // printf("w.size: %d\n", w.size);
+  // printf("s_out: %d\n", s_out);
+
   FixArray a = fix->mul(nm, w_extend, nm.ell + s_out, msb_nm_data, all_0_dm.data);//这个mul可以优化，w_extend中每一行都是同一个值
+  /////////////////////////////////
+  // FixArray a = fix->input(this->party, nm.size, uint64_t(0), true, nm.ell + s_out , nm.s + w.s);//得初始化一个a
+  // uint64_t *outC = new uint64_t[batch_dn_size * w.size];
+  // gp->matrix_vector_unsigned_mul(batch_dn_size, w.size, nm.data, w.data, outC, nm.ell, w.ell, l_out + s_out); //l_out + adjust_extend.s是19+6，位宽还得调整
+  // memcpy(a.data, outC, batch_dn_size * w.size * sizeof(uint64_t));
+  // delete[] outC;
+  /////////////////////////////////
+  printf("check point 1\n");
   a = fix->truncate_reduce(a, nm.s);
+  // printf("a.size: %d\n", a.size);
+  // printf("a.ell: %d\n", a.ell);
+  // printf("a.s: %d\n", a.s);
+  // printf("nm.ell: %d\n", nm.ell);
+  // printf("nm.s: %d\n", nm.s);
+  // printf("l_out: %d\n", l_out);
+  // printf("s_out: %d\n", s_out);
   if ((nm.ell - nm.s) >= (l_out - s_out)) {
     a = fix->reduce(a, l_out);
   } else {
     a = fix->extend(a, l_out, msb_nm_data);
   }
-
+  printf("check point 2\n");
 
   //a是return的 a是share值 adjust_extend也是share值
   if (!normalized_dn) {
     // Change extend adjust here
     a = fix->mul(a, adjust_extend, l_out + adjust_extend.s, msb_nm_data, all_0_dm.data);//这个mul可以优化，adjust_extend中每一行都是同一个值
+    // printf("a.size: %d\n", a.size);
+    printf("a.ell: %d\n", a.ell);
+    printf("a.s: %d\n", a.s);
+    // printf("adjust_extend.size: %d\n", adjust_extend.size);
+    // printf("adjust_extend.ell: %d\n", adjust_extend.ell);
+    // printf("adjust_extend.s: %d\n", adjust_extend.s);
+    // printf("l_out: %d\n", l_out);
+    // printf("adjust_extend.s: %d\n", adjust_extend.s);
+    // printf("adjust.size: %d\n", adjust.size);
+    printf("adjust.ell: %d\n", adjust.ell);
+    printf("adjust.s: %d\n", adjust.s);
+    // printf("l_out + adjust.s: %d\n", l_out + adjust.s);
+    // printf("batch_dn_size: %d\n", batch_dn_size);
+
+    ////////////////////////
+    // uint64_t *outC = new uint64_t[batch_dn_size * w.size];
+    // gp->matrix_vector_unsigned_mul(batch_dn_size, w.size, a.data, adjust.data, outC, a.ell, adjust.ell, l_out + adjust.s); //位宽还得调整
+    // memcpy(a.data, outC, batch_dn_size * w.size * sizeof(uint64_t));
+    // delete[] outC;
+    ////////////////////////
     a = fix->truncate_reduce(a, adjust_extend.s);
     printf("adjust_extend.s: %d\n", adjust_extend.s);
   }

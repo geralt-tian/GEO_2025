@@ -23,6 +23,7 @@ SOFTWARE.
 #define FIXED_POINT_H__
 
 #include "FloatingPoint/bool-data.h"
+#include "BuildingBlocks/geometric_perspective_protocols.h"
 #include "Math/math-functions.h"
 #include <tuple>
 
@@ -140,6 +141,7 @@ public:
   Truncation *trunc;
   LinearOT *mult;
   BoolOp *bool_op;
+  GeometricPerspectiveProtocols *gp;
   FixOp *fix;
 
   FixOp(int party, sci::IOPack *iopack, sci::OTPack *otpack) {
@@ -154,6 +156,7 @@ public:
     this->mult = new LinearOT(party, iopack, otpack);
     this->bool_op = new BoolOp(party, iopack, otpack);
     this->fix = this;
+    this->gp = new GeometricPerspectiveProtocols(party, iopack, otpack);
   }
 
   ~FixOp() {

@@ -39,7 +39,7 @@ AuxProtocols *aux;
 
 // Test parameters for exp_nagx
 int dim = 16384;  // Test with 1024 elements
-int32_t in_bw = 20;      // Input bit width
+int32_t in_bw = 37;      // Input bit width
 int32_t in_f = 12;       // Input fractional bits
 
 int32_t localexp_f = 10;   // Local exp fractional bits
@@ -97,7 +97,7 @@ int main(int argc, char **argv) {
 
     // Generate test data with fixed seed for reproducibility
     std::mt19937 gen(42);
-    std::uniform_real_distribution<double> dis(0, 14.0); // positive range for exp_nagx, test both x<=4 and x>4
+    std::uniform_real_distribution<double> dis(-10, 0); // range [-10,0] for exp_nagx
 
     cout << "Generating test data for " << dim << " elements..." << endl;
 
@@ -108,6 +108,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < dim; i++) {
         double test_val = dis(gen); // positive value
         test_values[i] = test_val;
+        // test_values[0] = 8.0 - 0.0001;
         
         if (party == sci::ALICE) {
             double alice_share = test_val * 0.6; // Alice gets 60% of the value
@@ -125,7 +126,7 @@ int main(int argc, char **argv) {
     auto start_time = chrono::high_resolution_clock::now();
 
     // Call the exp_nagx function
-    gp->exp_nagx(dim, inA, result, in_bw, in_f, 
+    gp->exp_softmaxx(dim, inA, result, in_bw, in_f, 
                  localexp_bw, localexp_f, locallut_bw, locallut_f);
 
     auto end_time = chrono::high_resolution_clock::now();
@@ -176,7 +177,7 @@ int main(int argc, char **argv) {
             double input_val = fix2double(input_alice[i], input_bob[i], in_bw, in_f);
             
             // Expected result: exp(-input_val) since exp_nagx computes exp(-inA)
-            double expected_result = exp(-input_val);
+            double expected_result = exp(input_val);
             
             // Calculate errors
             double absolute_error = fabs(actual_result - expected_result);

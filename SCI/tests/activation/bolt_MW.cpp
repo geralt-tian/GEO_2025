@@ -1,5 +1,12 @@
-// MW协议测试文件
-// 测试MW (Most Significant Wrap) 协议的正确性
+// MW协议测试文件 - 重构版
+// 专门测试MW (Most Significant Wrap) 协议
+// 
+// 测试流程：
+// 1. 定义真实输入值（包括用户指定的28039, 21038）
+// 2. 将真实输入分解为Alice和Bob的秘密分享
+// 3. 各方使用自己的share调用gp->mw()协议
+// 4. 将MPC结果与基于真实输入的明文MW结果对比
+// 5. 验证协议正确性，特别关注bw=15的情况
 
 #include "utils/emp-tool.h"
 #include "BuildingBlocks/geometric_perspective_protocols.h"
@@ -23,287 +30,184 @@ IOPack *iopack;
 OTPack *otpack;
 GeometricPerspectiveProtocols *gp;
 
-// MW明文计算函数
-void compute_MW_plain(const uint64_t *x0, const uint64_t *x1, uint64_t *MW,
-                      size_t len, uint64_t N) {
-    for (size_t i = 0; i < len; ++i) {
-        uint64_t sum = x0[i] + x1[i];
-        if (0 <= sum && sum < N / 2) {
-            MW[i] = 0;
-        } else if (N / 2 <= sum && sum < 3 * N / 2) {
-            MW[i] = 1;
-        } else if (3 * N / 2 <= sum && sum < 2 * N) {
-            MW[i] = 2;
-        } else {
-            MW[i] = 3; // 默认无效
-        }
+// MW明文计算函数 - 根据MW协议的定义
+uint64_t compute_MW_plain(uint64_t input, int bw) {
+    uint64_t N = 1ULL << bw;  // 2^bw
+    
+    // 确保输入在有效范围内
+    // input = input % N;
+    
+    // MW协议的逻辑：检查输入在环中的位置
+    // MW检查是否在上半环 [N/2, N)
+    if (input <= N/2) {
+        return 0;  // 在上半环
+    } else if(input <= 3*N/2){
+        return 1;
+    } else if(input <= 2*N){
+        return 2;
+    } else{
+        return 3;  // 在下半环 [0, N/2)
     }
 }
 
-// 计算绝对值的辅助函数
-int64_t abs_int64(int64_t x) {
-    return (x < 0) ? -x : x;
-}
-
-// 测试基本MW协议的函数
-void test_basic_mw() {
-    printf("=== Testing Basic MW Protocol ===\n");
+// 测试MW协议的主函数
+void test_mw_protocol() {
+    printf("=== Testing MW Protocol with Share Inputs ===\n");
+    
+    // 测试参数
+    int test_bw = 15;  // 用户指定的位宽
+    uint64_t N = 1ULL << test_bw;  // 2^15 = 32768
+    
+    printf("\n--- Testing with bw=%d, N=2^%d=%llu ---\n", test_bw, test_bw, N);
+    
+    // 测试数据维度
+    int test_dim = 8;
+    uint64_t *input_array = new uint64_t[test_dim];
+    uint64_t *output_array = new uint64_t[test_dim];
     
     // 初始化随机数种子
-    srand(time(nullptr));
+    srand(time(nullptr) + party);
     
-    // 测试参数 - 环大小为2^21
-    int test_dim = 10;
-    int test_bw = 21;  // l = 21
-    uint64_t N = 1ULL << test_bw;  // 2^21 = 2097152
-    
-    printf("\n--- Testing with l=%d, N=2^%d=%llu ---\n", test_bw, test_bw, N);
-    
-    // 创建测试数据
-    uint64_t *test_input = new uint64_t[test_dim];
-    uint64_t *test_output = new uint64_t[test_dim];
-    
-    // 初始化测试数据 - 根据环大小调整输入值
-    for (int i = 0; i < test_dim; i++) {
-        // 生成覆盖不同环区间的测试数据
-        if (i == 0) test_input[i] = N/8;         // 第一个区间
-        else if (i == 1) test_input[i] = N/4;    // 边界
-        else if (i == 2) test_input[i] = N/2;    // 中点
-        else if (i == 3) test_input[i] = 3*N/4;  // 第三个区间
-        else if (i == 4) test_input[i] = 7*N/8;  // 接近边界
-        else test_input[i] = (N-1) - (i-5);     // 其他值
+    if (party == ALICE) {
+        // Alice设置自己的share值
+        input_array[0] = 28039;      // 用户指定输入1
+        input_array[1] = 21038;      // 用户指定输入2
+        input_array[2] = 0;          // 边界值
+        input_array[3] = N/4;        // 测试值
+        input_array[4] = N/2;        // 中点
+        input_array[5] = 3*N/4;      // 测试值
+        input_array[6] = N-1;        // 最大值
+        input_array[7] = 12345;      // 随机值
         
-        test_output[i] = 0;
+        printf("Alice shares: ");
+        for (int i = 0; i < test_dim; i++) {
+            printf("%llu ", input_array[i]);
+            output_array[i] = 0;
+        }
+        printf("\n");
+        
+        // 发送Alice的shares给Bob用于计算明文期望结果
+        iopack->io->send_data(input_array, test_dim * sizeof(uint64_t));
+    } else {
+        // Bob设置自己的share值
+        input_array[0] = 21038;       // 对应Alice的28039
+        input_array[1] = 2000;       // 对应Alice的21038  
+        input_array[2] = 100;        // 对应Alice的0
+        input_array[3] = 500;        // 对应Alice的N/4
+        input_array[4] = 1500;       // 对应Alice的N/2
+        input_array[5] = 2500;       // 对应Alice的3*N/4
+        input_array[6] = 3000;       // 对应Alice的N-1
+        input_array[7] = 6789;       // 对应Alice的12345
+        
+        printf("Bob shares: ");
+        for (int i = 0; i < test_dim; i++) {
+            printf("%llu ", input_array[i]);
+            output_array[i] = 0;
+        }
+        printf("\n");
     }
     
-    printf("Test input values (ring): ");
-    for (int i = 0; i < test_dim; i++) {
-        printf("%llu ", test_input[i]);
-    }
-    printf("\n");
+    // 计算明文期望结果
+    uint64_t *alice_shares = new uint64_t[test_dim];
+    uint64_t *total_inputs = new uint64_t[test_dim];
+    uint64_t *expected_results = new uint64_t[test_dim];
     
+    if (party == BOB) {
+        // Bob接收Alice的shares
+        iopack->io->recv_data(alice_shares, test_dim * sizeof(uint64_t));
+        
+        // 计算总输入 = Alice_share + Bob_share
+        printf("Total inputs (Alice_share + Bob_share): ");
+        for (int i = 0; i < test_dim; i++) {
+            total_inputs[i] = alice_shares[i] + input_array[i];
+            printf("%llu ", total_inputs[i]);
+        }
+        printf("\n");
+        
+        // 计算明文期望MW结果
+        printf("Expected MW results: ");
+        for (int i = 0; i < test_dim; i++) {
+            expected_results[i] = compute_MW_plain(total_inputs[i], test_bw);
+            printf("%llu ", expected_results[i]);
+        }
+        printf("\n");
+    }
+    
+    // 记录通信开销
     size_t comm_start = iopack->io->counter;
     
     // 调用MW协议
-    gp->mw(test_dim, test_input, test_output, test_bw, 2);
+    gp->mw(test_dim, input_array, output_array, test_bw, 2);
+    for (int i = 0; i < test_dim; i++) {
+        printf("input_array[%d] = %llu\n", i, input_array[i]);
+        printf("output_array[%d] = %llu\n", i, output_array[i]);
+    }
     
     size_t comm_end = iopack->io->counter;
     
     // 恢复明文结果进行验证
-    uint64_t *test_output_alice = new uint64_t[test_dim];
+    uint64_t *output_alice = new uint64_t[test_dim];
+    
     if (party == ALICE) {
-        iopack->io->send_data(test_output, test_dim * sizeof(uint64_t));
+        iopack->io->send_data(output_array, test_dim * sizeof(uint64_t));
     } else {
-        iopack->io->recv_data(test_output_alice, test_dim * sizeof(uint64_t));
+        iopack->io->recv_data(output_alice, test_dim * sizeof(uint64_t));
     }
     
     if (party == BOB) {
-        printf("MW Protocol Results and Verification:\n");
+        printf("\n=== MW Protocol Results and Verification ===\n");
         int correct_count = 0;
         
         for (int i = 0; i < test_dim; i++) {
-            // 恢复明文结果
-            uint64_t mpc_result = (test_output_alice[i] + test_output[i]) & 3; // MW输出是2位
+            // 恢复明文结果 (2位输出)
+            uint64_t mpc_result = (output_alice[i] + output_array[i]) & 3;
             
-            // 计算期望的明文结果
-            // MW是基于输入值在环中的位置计算的
-            uint64_t expected_result;
-            uint64_t input_val = test_input[i];
-            
-            if (input_val < N/4) {
-                expected_result = 0;  // 在[0, N/4)区间
-            } else if (input_val < 3*N/4) {
-                expected_result = 1;  // 在[N/4, 3*N/4)区间  
-            } else {
-                expected_result = 2;  // 在[3*N/4, N)区间
-            }
-            
-            bool is_correct = (mpc_result == expected_result);
+            bool is_correct = (mpc_result == expected_results[i]);
             if (is_correct) correct_count++;
             
-            printf("Test[%d]: Input=%llu, Expected=%llu, MPC=%llu %s\n",
-                   i, input_val, expected_result, mpc_result,
+            printf("Test[%d]: Total_Input=%llu, Expected=%llu, MPC=%llu %s\n",
+                   i, total_inputs[i], expected_results[i], mpc_result,
                    is_correct ? "✓" : "✗");
+            
+            if (i < 2) {  // 特别关注用户指定的两个输入
+                printf("  -> User specified input: %s\n", 
+                       is_correct ? "PASSED" : "FAILED");
+            }
         }
         
-        printf("\n=== MW Test Summary (l=%d) ===\n", test_bw);
+        printf("\n=== Test Summary ===\n");
+        printf("Bit width (bw): %d\n", test_bw);
+        printf("Ring size (N): %llu\n", N);
         printf("Total tests: %d\n", test_dim);
         printf("Correct results: %d\n", correct_count);
         printf("Accuracy: %.2f%%\n", (double)correct_count / test_dim * 100.0);
         printf("Communication cost: %zu bytes\n", (comm_end - comm_start));
         
+        // 特别报告用户指定输入的结果
+        printf("\n=== User Specified Inputs Results ===\n");
+        for (int i = 0; i < 2 && i < test_dim; i++) {
+            uint64_t mpc_result = (output_alice[i] + output_array[i]) & 3;
+            printf("Total Input %llu: Expected=%llu, Got=%llu %s\n",
+                   total_inputs[i], expected_results[i], mpc_result,
+                   (mpc_result == expected_results[i]) ? "✓" : "✗");
+        }
+        
         if (correct_count == test_dim) {
-            printf("🎉 All MW tests PASSED for l=%d!\n", test_bw);
+            printf("\n🎉 All MW tests PASSED!\n");
         } else {
-            printf("❌ Some MW tests FAILED for l=%d.\n", test_bw);
+            printf("\n❌ Some MW tests FAILED.\n");
         }
     }
     
     // 清理内存
-    delete[] test_input;
-    delete[] test_output;
-    delete[] test_output_alice;
+    delete[] alice_shares;
+    delete[] total_inputs;
+    delete[] expected_results;
+    delete[] input_array;
+    delete[] output_array;
+    delete[] output_alice;
     
-    printf("=== Basic MW Test Completed ===\n\n");
-}
-
-// 测试带参数B的MW协议
-void test_mw_with_B() {
-    printf("=== Testing MW with B Protocol ===\n");
-    
-    // 测试参数 - 环大小为2^21，B = 5/8 * N
-    int test_dim = 10;
-    int test_bw = 21;  // l = 21
-    uint64_t N = 1ULL << test_bw;  // 2^21 = 2097152
-    uint64_t B = (5 * N) / 8;  // B = 5/8 * N = 1310720
-    
-    printf("\n--- Testing MW with B, l=%d, N=2^%d=%llu, B=%llu (5/8*N) ---\n", test_bw, test_bw, N, B);
-    
-    // 创建测试数据
-    uint64_t *test_input = new uint64_t[test_dim];
-    uint64_t *test_output = new uint64_t[test_dim];
-    
-    // 初始化测试数据 - 根据环大小和B值调整输入值
-    for (int i = 0; i < test_dim; i++) {
-        // 生成围绕B值的测试数据
-        if (i == 0) test_input[i] = B/2;        // 小于B
-        else if (i == 1) test_input[i] = B-1;   // 刚好小于B
-        else if (i == 2) test_input[i] = B;     // 等于B
-        else if (i == 3) test_input[i] = B+1;   // 刚好大于B
-        else if (i == 4) test_input[i] = B*2;   // 大于B
-        else test_input[i] = (B*3) % N;         // 其他值
-        
-        test_output[i] = 0;
-    }
-    
-    printf("Test input values (ring): ");
-    for (int i = 0; i < test_dim; i++) {
-        printf("%llu ", test_input[i]);
-    }
-    printf("\n");
-    
-    size_t comm_start = iopack->io->counter;
-    
-    // 调用MW with B协议
-    gp->mwwithB(test_dim, B, test_input, test_output, test_bw, 2);
-    
-    size_t comm_end = iopack->io->counter;
-    
-    // 恢复明文结果进行验证
-    uint64_t *test_output_alice = new uint64_t[test_dim];
-    if (party == ALICE) {
-        iopack->io->send_data(test_output, test_dim * sizeof(uint64_t));
-    } else {
-        iopack->io->recv_data(test_output_alice, test_dim * sizeof(uint64_t));
-    }
-    
-    if (party == BOB) {
-        printf("MW with B Protocol Results and Verification:\n");
-        int correct_count = 0;
-        
-        for (int i = 0; i < test_dim; i++) {
-            // 恢复明文结果
-            uint64_t mpc_result = (test_output_alice[i] + test_output[i]) & ((1ULL << test_bw) - 1);
-            
-            // 计算期望的明文结果
-            // MWwithB的逻辑基于输入值与B的关系
-            uint64_t expected_result;
-            uint64_t input_val = test_input[i];
-            
-            // 简化的期望结果计算（根据MW with B的具体逻辑调整）
-            if (input_val >= B) {
-                expected_result = 1;
-            } else {
-                expected_result = 0;  
-            }
-            
-            bool is_correct = (mpc_result == expected_result);
-            if (is_correct) correct_count++;
-            
-            printf("Test[%d]: Input=%llu, B=%llu, Expected=%llu, MPC=%llu %s\n",
-                   i, input_val, B, expected_result, mpc_result,
-                   is_correct ? "✓" : "✗");
-        }
-        
-        printf("\n=== MW with B Test Summary (l=%d) ===\n", test_bw);
-        printf("Total tests: %d\n", test_dim);
-        printf("Correct results: %d\n", correct_count);
-        printf("Accuracy: %.2f%%\n", (double)correct_count / test_dim * 100.0);
-        printf("Communication cost: %zu bytes\n", (comm_end - comm_start));
-        
-        if (correct_count == test_dim) {
-            printf("🎉 All MW with B tests PASSED for l=%d!\n", test_bw);
-        } else {
-            printf("❌ Some MW with B tests FAILED for l=%d.\n", test_bw);
-        }
-    }
-    
-    // 清理内存
-    delete[] test_input;
-    delete[] test_output;
-    delete[] test_output_alice;
-    
-    printf("=== MW with B Test Completed ===\n\n");
-}
-
-// 测试MW明文计算的正确性
-void test_mw_plaintext() {
-    printf("=== Testing MW Plaintext Computation ===\n");
-    
-    // 测试环大小为2^21
-    int test_dim = 10;
-    int test_bw = 21;  // l = 21
-    uint64_t N = 1ULL << test_bw;  // 2^21 = 2097152
-    
-    printf("\n--- Testing Plaintext MW with l=%d, N=2^%d=%llu ---\n", test_bw, test_bw, N);
-    
-    uint64_t *x0 = new uint64_t[test_dim];
-    uint64_t *x1 = new uint64_t[test_dim];
-    uint64_t *MW_result = new uint64_t[test_dim];
-    
-    // 创建测试数据覆盖不同的sum范围
-    for (int i = 0; i < test_dim; i++) {
-        // 根据环大小调整测试数据
-        x0[i] = (i * N/test_dim) % N;  // 均匀分布在环上
-        x1[i] = (i * N/test_dim + N/8) % N;  // 偏移一些
-    }
-    
-    // 计算MW明文结果
-    compute_MW_plain(x0, x1, MW_result, test_dim, N);
-    
-    printf("MW Plaintext Test Results:\n");
-    printf("N = %llu, N/2 = %llu, 3*N/2 = %llu\n", N, N/2, 3*N/2);
-    
-    int correct_count = 0;
-    for (int i = 0; i < test_dim; i++) {
-        uint64_t sum = x0[i] + x1[i];
-        printf("Test[%d]: x0=%llu, x1=%llu, sum=%llu, MW=%llu\n",
-               i, x0[i], x1[i], sum, MW_result[i]);
-        
-        // 验证逻辑
-        uint64_t expected;
-        if (sum < N/2) expected = 0;
-        else if (sum < 3*N/2) expected = 1;
-        else if (sum < 2*N) expected = 2;
-        else expected = 3;
-        
-        if (MW_result[i] != expected) {
-            printf("  ❌ Error: Expected %llu but got %llu\n", expected, MW_result[i]);
-        } else {
-            printf("  ✓ Correct\n");
-            correct_count++;
-        }
-    }
-    
-    printf("=== MW Plaintext Test Summary (l=%d) ===\n", test_bw);
-    printf("Correct results: %d/%d\n", correct_count, test_dim);
-    printf("Accuracy: %.2f%%\n", (double)correct_count / test_dim * 100.0);
-    
-    delete[] x0;
-    delete[] x1;
-    delete[] MW_result;
-    
-    printf("=== MW Plaintext Test Completed ===\n\n");
+    printf("=== MW Test Completed ===\n\n");
 }
 
 int main(int argc, char **argv) {
@@ -315,24 +219,15 @@ int main(int argc, char **argv) {
     amap.parse(argc, argv);
 
     // 初始化通信和协议
-    iopack = new IOPack(party, port, "127.0.0.1");
+    iopack = new IOPack(party, port, address);
     otpack = new OTPack(iopack, party);
     gp = new GeometricPerspectiveProtocols(party, iopack, otpack);
 
-    // 运行MW协议测试
     printf("Starting MW Protocol Testing...\n");
     printf("Party: %s\n", (party == ALICE) ? "ALICE" : "BOB");
     
-    // 先测试明文计算
-    if (party == ALICE) {
-        test_mw_plaintext();
-    }
-    
-    // 测试基本MW协议
-    test_basic_mw();
-    
-    // 测试带参数B的MW协议
-    test_mw_with_B();
+    // 运行MW协议测试
+    test_mw_protocol();
     
     printf("================================\n");
     printf("MW Protocol testing completed!\n");

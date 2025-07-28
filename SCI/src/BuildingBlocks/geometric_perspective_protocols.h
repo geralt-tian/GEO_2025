@@ -75,6 +75,9 @@ class GeometricPerspectiveProtocols {
         void exp_nagx(int32_t dim, uint64_t *inA, uint64_t *result, int32_t in_bw,int32_t in_f, 
             int32_t localexp_bw, int32_t localexp_f, int32_t locallut_bw, int32_t locallut_f);
 
+        void exp_softmaxx(int32_t dim, uint64_t *inA, uint64_t *result, int32_t in_bw, int32_t in_f,
+            int32_t localexp_bw, int32_t localexp_f, int32_t locallut_bw, int32_t locallut_f);
+
         void vector_bit_mul(int32_t dim, uint64_t *inA, uint8_t ot_choice, uint64_t *outC,
         int32_t bwA);
 

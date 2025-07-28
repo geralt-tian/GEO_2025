@@ -110,6 +110,9 @@ public:
 
   void print(const FixArray& x);
 
+  // Test function to verify exp_softmaxx accuracy
+  // void test_exp_softmaxx_accuracy(const FixArray& shifted_x_flat, uint64_t* actual_output, int size, int ell, int s);
+
   // FixArray recip_approx(const FixArray& x);
   
   // vector<FixArray> softmax_fix_iron_2(const vector<FixArray>& x);

@@ -38,17 +38,17 @@ int num_threads = 1;
 string address = "127.0.0.1";
 
 int32_t dim = num_threads*1;
-int32_t array_size = 128;
-int32_t bw_x = 20;
-int32_t bw_y = 20;
+int32_t array_size = 500;
+int32_t bw_x = 37;
+int32_t bw_y = 37;
 int32_t s_x = 12;
 int32_t s_y = 12;
 int32_t input_size = dim*array_size;
 
 bool signed_ = true;
 
-uint64_t mask_x = (bw_x == 64 ? -1 : ((1ULL << 21) - 1));
-uint64_t mask_y = (bw_y == 64 ? -1 : ((1ULL << 21) - 1));
+uint64_t mask_x = (bw_x == 64 ? -1 : ((1ULL << 29) - 1));
+uint64_t mask_y = (bw_y == 64 ? -1 : ((1ULL << 29) - 1));
 
 IOPack *iopackArr[MAX_THREADS];
 OTPack *otpackArr[MAX_THREADS];
@@ -143,7 +143,11 @@ int main(int argc, char **argv) {
   uint64_t *x = new uint64_t[input_size];
   uint64_t *y = new uint64_t[input_size];
 
+  // 生成0-100范围内的随机数
   prg.random_data(x, dim * array_size * sizeof(uint64_t));
+  for(int i = 0; i < dim * array_size; i++) {
+    x[i] = x[i] % 101; // 取模限制范围在0-100
+  }
 
   for (int i = 0; i < dim; i++) {
     for(int j=0;j < array_size;j++)
@@ -200,23 +204,59 @@ int main(int argc, char **argv) {
     double* dbl_x = new double[input_size];
     double* dbl_y = new double[input_size];
     double* dbl_ref = new double[input_size];
+    double* sumExp_values = new double[dim]; // Store sumExp for each dimension
+    double* max_values = new double[dim]; // Store max values for each dimension
+    double* numerator_values = new double[input_size]; // Store numerator for each element
     for (int i = 0; i < input_size; i++) {
       dbl_x[i] = (signed_val(x0[i] + x[i], bw_x)) / double(1LL << s_x);
       dbl_y[i] = (signed_val(y0[i] + y[i], bw_y)) / double(1LL << s_y);
     }
 
-    softmax_double(dbl_x, dbl_ref, dim, array_size);
+    // Modified softmax calculation to capture intermediate values
+    for (int i = 0; i < dim; i++){
+      double max_s = dbl_x[i*array_size];
+      for (int j = 0; j < array_size; ++j) {
+        max_s = max(max_s, dbl_x[j + i*array_size]);
+      }
+      max_values[i] = max_s; // Store max value for this dimension
+      
+      double sumExp = 0.0;
+      // Compute the exponential of each input element and accumulate the sum
+      for (int j = 0; j < array_size; ++j) {
+        double expValue = std::exp(dbl_x[j + i*array_size] - max_s);
+        numerator_values[j + i*array_size] = expValue; // Store numerator
+        dbl_ref[j + i*array_size] = expValue;
+        sumExp += expValue;
+      }
+      sumExp_values[i] = sumExp; // Store sumExp for this dimension
+      
+      // Normalize the exponential values by dividing each by the sum
+      for (int j = 0; j < array_size; ++j) {
+        dbl_ref[j + i*array_size] /= sumExp;
+      }
+    }
 
     for (int i = 0; i < input_size; i++) {
       uint64_t err = computeULPErr(dbl_y[i], dbl_ref[i], s_y);
       if (err > 10){
-        cout << "ULP Error: " << dbl_x[i] << "," << dbl_y[i] << "," << dbl_ref[i] << ","
-      << err << endl;
+        int dim_idx = i / array_size; // Calculate which dimension this element belongs to
+        int pos_in_dim = i % array_size; // Position within the dimension
+        cout << "ULP Error at [dim=" << dim_idx << ",pos=" << pos_in_dim << ",global_idx=" << i << "]: " 
+        << dbl_x[i] << "," << dbl_y[i] << "," << dbl_ref[i] << ","
+        << err << ", sumExp: " << sumExp_values[dim_idx] << ", numerator: " << numerator_values[i] 
+        << ", max_in_dim: " << max_values[dim_idx] << ", is_max: " << (dbl_x[i] == max_values[dim_idx] ? "true" : "false") << endl;
       }
       
       total_err += err;
       max_ULP_err = std::max(max_ULP_err, err);
     }
+    
+    delete[] sumExp_values;
+    delete[] max_values;
+    delete[] numerator_values;
+    delete[] dbl_x;
+    delete[] dbl_y;
+    delete[] dbl_ref;
     cerr << "Average ULP error: " << total_err / input_size << endl;
     cerr << "Max ULP error: " << max_ULP_err << endl;
     cerr << "Number of tests: " << input_size << endl;
