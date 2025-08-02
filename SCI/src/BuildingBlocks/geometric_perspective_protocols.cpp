@@ -192,6 +192,81 @@ void GeometricPerspectiveProtocols::mw(int32_t dim, uint64_t *input,
     // printf ("N- 2*quarter: %llu\n", N- 2*quarter);
 }
 
+void GeometricPerspectiveProtocols::mw_conversion(int32_t dim, uint64_t *input,
+                                       uint64_t *output, int32_t in_bw, int32_t act_l_bw,
+                                       int32_t out_bw) {
+  uint64_t mask_lplus1 = (act_l_bw + 1 == 64 ? -1 : ((1ULL << (act_l_bw + 1)) - 1));
+  uint64_t *input_lplus1 = new uint64_t[dim];
+  uint64_t *lplus1_output = new uint64_t[dim];
+  for (int i = 0; i < dim; i++) {
+    input_lplus1[i] = input[i] & mask_lplus1;
+  }
+  mw(dim, input_lplus1, lplus1_output, act_l_bw + 1, out_bw);
+  uint64_t *y_heat = new uint64_t[dim];
+  
+  if (party == sci::ALICE) {
+    for (int i = 0; i < dim; i++) {
+      y_heat[i] = (input_lplus1[i] + (1ULL << act_l_bw)) & mask_lplus1;
+    }
+  } else {
+    for (int i = 0; i < dim; i++) {
+      y_heat[i] = (input_lplus1[i]) & mask_lplus1;
+    }
+  }
+  uint64_t *y_star = new uint64_t[dim];
+  uint64_t *delta = new uint64_t[dim];
+  if (party == sci::ALICE) {
+    for (int i = 0; i < dim; i++) {
+      y_star[i] = (y_heat[i] - (1ULL << (act_l_bw-1))) & mask_lplus1;
+      if (y_heat[i] < (1ULL << (act_l_bw-1))) {
+        delta[i] = 1;
+      } else {
+        delta[i] = 0;
+      }
+    }
+  } else {
+    for (int i = 0; i < dim; i++) {
+      delta[i] = 0;
+    }
+  }
+  uint64_t *bit_mul_input = new uint64_t[dim];
+  if (party == sci::ALICE) {
+    for (int i = 0; i < dim; i++) {
+      if (y_star[i] >= (1ULL << (act_l_bw))) {
+        bit_mul_input[i] = 1;
+      } else {
+        bit_mul_input[i] = 0;
+      }
+    }
+  } else {
+    for (int i = 0; i < dim; i++) {
+      if (y_heat[i] >= (1ULL << (act_l_bw))) {
+        bit_mul_input[i] = 1;
+      } else {
+        bit_mul_input[i] = 0;
+      }
+    }
+  }
+  uint64_t *bit_mul_output = new uint64_t[dim];
+  bit_mul(dim, bit_mul_input, bit_mul_output, out_bw);
+  uint64_t *c = new uint64_t[dim];
+  uint64_t mask_out = (out_bw == 64 ? -1 : ((1ULL << out_bw) - 1));
+  for (int i = 0; i < dim; i++) {
+    c[i] = (delta[i] - bit_mul_output[i]) & mask_out;
+  }
+  for (int i = 0; i < dim; i++) {
+    output[i] = (lplus1_output[i] + c[i]) & mask_out;
+  }
+  delete[] input_lplus1;
+  delete[] y_heat;
+  delete[] y_star;
+  delete[] delta;
+  delete[] bit_mul_input;
+  delete[] bit_mul_output;
+  delete[] c;
+  delete[] lplus1_output;
+}
+
 void GeometricPerspectiveProtocols::mwwithB(int32_t dim, uint64_t B,
                                             uint64_t *input, uint64_t *output,
                                             int32_t in_bw, int32_t out_bw) {
@@ -1347,7 +1422,8 @@ if (party == sci::ALICE) {
        uint64_t MW_B = N_input / 2;
       // mw(dim, MW_input, MW, in_bw, 2);
       // mwwithB(dim, MW_B, inA_expinput, MW, in_bw, 2);
-      mwwithB(dim, MW_B, MW_input, MW, in_f + 3, 2);
+      // mwwithB(dim, MW_B, MW_input, MW, in_f + 3, 2);//现在是使用compare在小环上进行计算
+      mw_conversion(dim, MW_input, MW, in_bw, in_f + 3, 2);
         printf("MW[384] = %llu\n", MW[384]);
       printf("inA[384] = %llu\n", inA[384]);
       printf("pow_f_input = %llu\n", pow_f_input);

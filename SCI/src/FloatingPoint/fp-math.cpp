@@ -1544,7 +1544,11 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
 
   uint64_t *output = new uint64_t[N*n];
   printf("shifted_x_flat.data[384] = %lu\n", shifted_x_flat.data[384]);
+
+  size_t comm_start_exp = iopack->get_comm();
   this->gp->exp_softmaxx(N*n, shifted_x_flat.data, output, ell, s, 23, 10, 34, 32);
+  size_t comm_end_exp = iopack->get_comm();
+  std::cout << "exp_softmaxx comm: " << comm_end_exp - comm_start_exp << std::endl;
 
 
   /////////////////////////////////exp ULP test

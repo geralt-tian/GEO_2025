@@ -35,6 +35,8 @@ class GeometricPerspectiveProtocols {
         // MW(x0, x1, L) = Wrap(x0, x1, L) + MSB(x)
         void mw(int32_t dim, uint64_t *input, uint64_t *output, int32_t in_bw, int32_t out_bw);
 
+        void mw_conversion(int32_t dim, uint64_t *input, uint64_t *output, int32_t in_bw, int32_t act_l_bw, int32_t out_bw);
+
         void mwwithB(int32_t dim,uint64_t B, uint64_t *input, uint64_t *output, int32_t in_bw, int32_t out_bw);
 
         // Multiplexer protocol with two-bit choice, c is a two-bit number
