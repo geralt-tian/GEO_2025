@@ -38,10 +38,10 @@ GeometricPerspectiveProtocols *gp;
 AuxProtocols *aux;
 
 // Test parameters for matrix_vector_crossterm
-int32_t m = 50;         // Matrix rows (and vector length)
-int32_t n = 20;        // Matrix columns
-int32_t bwA = 20;       // Matrix element bit width
-int32_t bwB = 20;       // Vector element bit width  
+int32_t m = 1;         // Matrix rows (and vector length)
+int32_t n = 100;        // Matrix columns
+int32_t bwA = 16;       // Matrix element bit width
+int32_t bwB = 32;       // Vector element bit width  
 int32_t bwC = bwA + bwB;  // Output bit width
 
 uint64_t mask_A = (bwA == 64 ? -1 : ((1ULL << bwA) - 1));

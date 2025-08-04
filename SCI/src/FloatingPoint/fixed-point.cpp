@@ -290,6 +290,38 @@ FixArray FixOp::mul(const FixArray &x, const FixArray &y, int ell,
   return ret;
 }
 
+FixArray FixOp::mul_vec_mat_mul(const FixArray &x, const FixArray &y, int ell,
+  uint8_t *msb_x, uint8_t *msb_y) {
+assert(x.party != PUBLIC || y.party != PUBLIC);
+// assert(x.size == y.size);
+assert(y.signed_ || (x.signed_ == y.signed_));
+assert(ell >= x.ell && ell >= y.ell && ell <= x.ell + y.ell);
+assert(ell < 64);
+FixArray ret(this->party, y.size, x.signed_, ell, x.s + y.s);
+if (x.party == PUBLIC || y.party == PUBLIC) {
+FixArray x_ext = this->extend(x, ell, msb_x);
+FixArray y_ext = this->extend(y, ell, msb_y);
+uint64_t ret_mask = ret.ell_mask();
+for (int i = 0; i < x.size; i++) {
+ret.data[i] = (x_ext.data[i] * y_ext.data[i]) & ret_mask;
+}
+} else {
+// mult->hadamard_product(x.size, x.data, y.data, ret.data, x.ell, y.ell, ell,
+//                      x.signed_, y.signed_, MultMode::None, msb_x, msb_y);
+uint64_t *mid_result = new uint64_t[y.size];
+mult->matrix_multiplication(1, x.size, y.size / x.size, x.data, y.data, mid_result, x.ell, y.ell, ell,
+                      x.signed_, y.signed_, false, MultMode::None, msb_x, msb_y);
+
+for (int i = 0; i < x.size; i++) {
+    for (int j = 0; j < y.size / x.size; j++) {
+        ret.data[j  + i * (y.size / x.size)] = mid_result[i + j * x.size];
+    }
+}
+delete[] mid_result;
+}
+return ret;
+}
+
 FixArray FixOp::mul(const FixArray &x, uint64_t y, int ell, uint8_t *msb_x) {
   assert(ell >= x.ell);
   FixArray ret;
@@ -1226,6 +1258,236 @@ FixArray FixOp::div_batch(const FixArray& nm, const FixArray& dn, int batch_dn_s
   if (!normalized_dn) {
     // Change extend adjust here
     a = fix->mul(a, adjust_extend, l_out + adjust_extend.s, msb_nm_data, all_0_dm.data);//这个mul可以优化，adjust_extend中每一行都是同一个值
+    // printf("a.size: %d\n", a.size);
+    printf("a.ell: %d\n", a.ell);
+    printf("a.s: %d\n", a.s);
+    // printf("adjust_extend.size: %d\n", adjust_extend.size);
+    // printf("adjust_extend.ell: %d\n", adjust_extend.ell);
+    // printf("adjust_extend.s: %d\n", adjust_extend.s);
+    // printf("l_out: %d\n", l_out);
+    // printf("adjust_extend.s: %d\n", adjust_extend.s);
+    // printf("adjust.size: %d\n", adjust.size);
+    printf("adjust.ell: %d\n", adjust.ell);
+    printf("adjust.s: %d\n", adjust.s);
+    // printf("l_out + adjust.s: %d\n", l_out + adjust.s);
+    // printf("batch_dn_size: %d\n", batch_dn_size);
+
+    ////////////////////////
+    // uint64_t *outC = new uint64_t[batch_dn_size * w.size];
+    // gp->matrix_vector_unsigned_mul(batch_dn_size, w.size, a.data, adjust.data, outC, a.ell, adjust.ell, l_out + adjust.s); //位宽还得调整
+    // memcpy(a.data, outC, batch_dn_size * w.size * sizeof(uint64_t));
+    // delete[] outC;
+    ////////////////////////
+    a = fix->truncate_reduce(a, adjust_extend.s);
+    printf("adjust_extend.s: %d\n", adjust_extend.s);
+  }
+  // size_t comm_end_div = iopack->get_comm();
+  // std::cout << "optimal mul comm: " << comm_end_div - comm_start_div << std::endl;
+  // printf("iters: %d\n", iters);
+  //这里跑出来是0
+  if (iters > 0) {
+    // printf("iters: %d\n", iters);
+    assert(0);
+    FixArray d = fix->mul(w, nrmlzd_dn, s_out + nrmlzd_dn.s + 2, all_0.data, all_0.data);
+    d = fix->truncate_reduce(d, nrmlzd_dn.s);
+    FixArray e = fix->sub(1ULL << d.s, d);
+    e.signed_ = true;
+
+    FixArray a_curr, e_curr;
+    FixArray a_prev = a, e_prev = e;
+    for (int i = 0; i < iters - 1; i++) {
+      e_curr = fix->mul(e_prev, e_prev, 2*s_out + 2, all_0.data, all_0.data);
+      e_curr = fix->truncate_reduce(e_curr, s_out);
+      e_prev = fix->add(e_prev, 1ULL << e_prev.s);
+      a_curr = fix->mul(e_prev, a_prev, l_out + s_out, all_0.data, msb_nm_data);
+      a_curr = fix->truncate_reduce(a_curr, s_out);
+      a_prev = a_curr;
+      e_prev = e_curr;
+    }
+    e_prev = fix->add(e_prev, 1ULL << e_prev.s);
+    FixArray out = fix->mul(e_prev, a_prev, l_out + s_out, all_0.data, msb_nm_data);
+    out = fix->truncate_reduce(out, s_out);
+    return out;
+  } else {
+    return a;
+  }
+}
+
+//batch_dn_size是列数
+FixArray FixOp::div_batch_opt(const FixArray& nm, const FixArray& dn, int batch_dn_size, int l_out, int s_out, bool normalized_dn) {
+  if (!normalized_dn) assert(dn.signed_ == false);
+  assert(nm.party != PUBLIC && dn.party != PUBLIC);
+  assert(nm.size == dn.size * batch_dn_size);
+  assert(s_out <= dn.s);
+  BoolArray all_0 = bool_op->input(ALICE, dn.size, uint8_t(0));
+  BoolArray all_1 = bool_op->input(ALICE, dn.size, uint8_t(1));
+
+  FixArray nrmlzd_dn;
+  FixArray adjust = fix->input(PUBLIC, dn.size, uint64_t(0), false, dn.ell + 1, 0);// ell = dn.ell + 1 ,s = n.ell - 1 - dn.s
+  // printf("adjust.party: %d\n", adjust.party); //这里还是public的
+  if (!normalized_dn) {
+    vector<FixArray> msnzb_one_hot = fix->msnzb_one_hot(dn, dn.ell + 1);
+    for (int i = 0; i < dn.ell; i++) {
+      adjust = fix->add(adjust, fix->mul(msnzb_one_hot[i], (1ULL << (dn.ell - 1 - i))));
+    }
+    // printf("adjust.party: %d\n", adjust.party); 是share值
+    adjust.s = dn.ell - 1 - dn.s;
+    BoolArray msb_dn = fix->LSB(msnzb_one_hot[dn.ell - 1]);
+    nrmlzd_dn = fix->mul(dn, adjust, dn.ell + 1, msb_dn.data, all_0.data); //dn是share，adjust是share
+  } else {
+    if (dn.ell == dn.s + 1) {
+      nrmlzd_dn = fix->extend(dn, dn.s + 2, all_1.data);
+    } else {
+      nrmlzd_dn = fix->reduce(dn, dn.s + 2);
+    }
+  }
+  // printf("adjust.ell: %d\n", adjust.ell);
+  // printf("adjust.s: %d\n", adjust.s);
+  // printf("dn.ell: %d\n", dn.ell);
+  // printf("dn.s: %d\n", dn.s);
+  // printf("nrmlzd_dn.ell: %d\n", nrmlzd_dn.ell);
+  // printf("nrmlzd_dn.s: %d\n", nrmlzd_dn.s);
+
+  int32_t m, iters;
+  m = (s_out <= 18 ? ceil((s_out - 2) / 2.0) : ceil((ceil(s_out / 2.0) - 2) / 2.0));
+  iters = (s_out <= 18 ? 0 : 1);
+
+  // reciprocal approximation w
+  FixArray eps = fix->reduce(nrmlzd_dn, nrmlzd_dn.s - m);
+  eps.signed_ = false;
+  BoolArray msb_eps = fix->MSB(eps);
+  uint8_t *wrap_eps = new uint8_t[dn.size];
+  fix->aux->MSB_to_Wrap(eps.data, msb_eps.data, wrap_eps, eps.size, eps.ell);
+  FixArray idx = fix->truncate_reduce(fix->reduce(nrmlzd_dn, nrmlzd_dn.s), nrmlzd_dn.s - m, wrap_eps);
+  idx.signed_ = false;
+  delete[] wrap_eps;
+  vector<uint64_t> spec_c0(1 << idx.ell);
+  vector<uint64_t> spec_c1(1 << idx.ell);
+  for (int j = 0; j < (1 << idx.ell); j++) {
+    spec_c0[j] = recp_lookup_c0(j, m);
+    spec_c1[j] = recp_lookup_c1(j, m);
+  }
+  FixArray c0 = fix->LUT(spec_c0, idx, true, m + 4, m + 3);
+  FixArray c1 = fix->LUT(spec_c1, idx, true, 2*m + 3, 2*m + 2);
+  // printf("c0.party: %d\n", c0.party);
+  // printf("eps.party: %d\n", eps.party);
+  FixArray w = fix->mul(c0, eps, nrmlzd_dn.s + 4, all_0.data, msb_eps.data);
+  w = fix->sub(fix->scale_up(c1, nrmlzd_dn.s + m + 4, nrmlzd_dn.s + m + 3),
+               fix->extend(w, nrmlzd_dn.s + m + 4, all_0.data));
+  w = fix->truncate_reduce(w, w.s - s_out);
+
+  printf("w.data[0] = %llu\n", w.data[0]);
+  printf("adjust.data[0] = %llu\n", adjust.data[0]);
+
+  BoolArray msb_nm;
+  uint8_t* msb_nm_data = nullptr;
+  if (nm.signed_) {
+    msb_nm = fix->MSB(nm);
+    msb_nm_data = msb_nm.data;
+  }
+  // printf("msb_nm.party: %d\n", msb_nm.party);
+  // printf("msb_nm.size: %d\n", msb_nm.size);
+  // printf("msb_nm.ell: %d\n", msb_nm.ell);
+  // printf("msb_nm.s: %d\n", msb_nm.s);
+  // if (party == sci::ALICE) {
+  //   // Alice sends her shares of nm and msb_nm to Bob
+  //   iopack->io->send_data(nm.data, msb_nm.size * sizeof(uint64_t));
+  //   iopack->io->send_data(msb_nm.data, msb_nm.size * sizeof(uint8_t));
+  // } else {
+  //   // Bob receives Alice's shares
+  //   uint64_t *alice_nm_shares = new uint64_t[msb_nm.size];
+  //   uint8_t *alice_msb_shares = new uint8_t[msb_nm.size];
+  //   iopack->io->recv_data(alice_nm_shares, msb_nm.size * sizeof(uint64_t));
+  //   iopack->io->recv_data(alice_msb_shares, msb_nm.size * sizeof(uint8_t));
+    
+  //   // Bob reconstructs both values and checks MSB
+  //   for (int i = 0; i < msb_nm.size; i++) {
+  //     uint64_t reconstructed_nm = (alice_nm_shares[i] + nm.data[i]);
+  //     uint8_t reconstructed_msb = (alice_msb_shares[i] ^ msb_nm.data[i]);
+  //     if (reconstructed_msb == 1) {
+  //       printf("Value at index %d (MSB=1): %lu\n", i, reconstructed_nm);
+  //     }
+  //   }
+  //   delete[] alice_nm_shares;
+  //   delete[] alice_msb_shares;
+  // }
+
+  // Change extend w and adjust here
+  FixArray w_extend(party, nm.size, w.signed_, w.ell, w.s);
+  FixArray adjust_extend(party, nm.size, adjust.signed_, adjust.ell, adjust.s);
+
+  for(int i = 0; i < dn.size; i++) {
+    for (int j = 0; j < batch_dn_size; j++) {
+      w_extend.data[i*batch_dn_size + j] = w.data[i];
+      adjust_extend.data[i*batch_dn_size + j] = adjust.data[i];
+    }
+  }
+
+  BoolArray all_0_dm = bool_op->input(ALICE, nm.size, uint8_t(0));
+  BoolArray wall_0_dm = bool_op->input(ALICE, w.size, uint8_t(0));
+  // BoolArray all_1_dm = bool_op->input(ALICE, nm.size, uint8_t(1));
+  // size_t comm_start_div = iopack->get_comm(); 
+  
+  // printf("nm.size: %d\n", nm.size);
+  // printf("nm.ell: %d\n", nm.ell);
+  // printf("nm.s: %d\n", nm.s);
+  // printf("w_extend.size: %d\n", w_extend.size);
+  // printf("w_extend.ell: %d\n", w_extend.ell);
+  // printf("w_extend.s: %d\n", w_extend.s);
+  // printf("w.size: %d\n", w.size);
+  // printf("s_out: %d\n", s_out);
+
+  // FixArray a = fix->mul(nm, w_extend, nm.ell + s_out, msb_nm_data, all_0_dm.data);//这个mul可以优化，w_extend中每一行都是同一个值
+
+  FixArray a = fix->mul_vec_mat_mul(w, nm, nm.ell + s_out, wall_0_dm.data,  msb_nm_data);
+
+  // FixArray a = fix->mul_vec_mat_mul(w, nm, nm.ell + s_out);
+
+
+  printf("w.size: %d\n", w.size);
+  printf("w.ell: %d\n", w.ell);
+  printf("w.s: %d\n", w.s);
+  printf("nm.size: %d\n", nm.size);
+  printf("nm.ell: %d\n", nm.ell);
+  printf("nm.s: %d\n", nm.s);
+  printf("a.size: %d\n", a.size);
+  printf("a.ell: %d\n", a.ell);
+  printf("a.s: %d\n", a.s);
+  for (int i = 0; i < 100; i++) {
+    printf("w.data[0] = %llu\n",  w.data[0]);
+    printf("w.data[1] = %llu\n",  w.data[1]);
+    printf("nm.data[%d] = %llu\n", i, nm.data[i]);
+    printf("a.data[%d] = %llu\n", i, a.data[i]);
+  }
+
+  /////////////////////////////////
+  // FixArray a = fix->input(this->party, nm.size, uint64_t(0), true, nm.ell + s_out , nm.s + w.s);//得初始化一个a
+  // uint64_t *outC = new uint64_t[batch_dn_size * w.size];
+  // gp->matrix_vector_unsigned_mul(batch_dn_size, w.size, nm.data, w.data, outC, nm.ell, w.ell, l_out + s_out); //l_out + adjust_extend.s是19+6，位宽还得调整
+  // memcpy(a.data, outC, batch_dn_size * w.size * sizeof(uint64_t));
+  // delete[] outC;
+  /////////////////////////////////
+  printf("check point 1\n");
+  a = fix->truncate_reduce(a, nm.s);
+  // printf("a.size: %d\n", a.size);
+  // printf("a.ell: %d\n", a.ell);
+  // printf("a.s: %d\n", a.s);
+  // printf("nm.ell: %d\n", nm.ell);
+  // printf("nm.s: %d\n", nm.s);
+  // printf("l_out: %d\n", l_out);
+  // printf("s_out: %d\n", s_out);
+  if ((nm.ell - nm.s) >= (l_out - s_out)) {
+    a = fix->reduce(a, l_out);
+  } else {
+    a = fix->extend(a, l_out, msb_nm_data);
+  }
+  printf("check point 2\n");
+
+  //a是return的 a是share值 adjust_extend也是share值
+  if (!normalized_dn) {
+    // Change extend adjust here
+    // a = fix->mul(a, adjust_extend, l_out + adjust_extend.s, msb_nm_data, all_0_dm.data);//这个mul可以优化，adjust_extend中每一行都是同一个值
+    a = fix->mul_vec_mat_mul(adjust,a, nm.ell + s_out,wall_0_dm.data,  msb_nm_data);
     // printf("a.size: %d\n", a.size);
     printf("a.ell: %d\n", a.ell);
     printf("a.s: %d\n", a.s);

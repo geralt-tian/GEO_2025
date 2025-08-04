@@ -37,8 +37,8 @@ int party, port = 32000;
 int num_threads = 1;
 string address = "127.0.0.1";
 
-int32_t dim = num_threads*1;
-int32_t array_size = 500;
+int32_t dim = num_threads*128;
+int32_t array_size = 768;
 int32_t bw_x = 37;
 int32_t bw_y = 37;
 int32_t s_x = 12;

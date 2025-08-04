@@ -243,6 +243,9 @@ public:
   //// msb_y is similar to msb_x but for y
   FixArray mul(const FixArray &x, const FixArray &y, int ell,
                uint8_t *msb_x = nullptr, uint8_t *msb_y = nullptr);
+               
+  FixArray mul_vec_mat_mul(const FixArray &x, const FixArray &y, int ell,
+               uint8_t *msb_x = nullptr, uint8_t *msb_y = nullptr);
   //// x can be PUBLIC or secret-shared
   //// y[i] = y (with same signedness as x; bitlength is ell and scale is 0)
   //// ell >= bitlength of x
@@ -415,6 +418,8 @@ public:
   
   // Optimization: 
   FixArray div_batch(const FixArray& nm, const FixArray& dn, int batch_dn_size, int l_out, int s_out, bool normalized_dn = false);
+
+  FixArray div_batch_opt(const FixArray& nm, const FixArray& dn, int batch_dn_size, int l_out, int s_out, bool normalized_dn = false);
 
   // FixArray sqrt(const FixArray& x, int l_y, int s_y, bool recp_sqrt = false);
 

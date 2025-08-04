@@ -31,5 +31,6 @@ add_test_BOLT(exp_nagx_test)
 add_test_BOLT(nag_exp)
 add_test_BOLT(signed_crossterm_cipher_plain)
 add_test_BOLT(MW)
+add_test_BOLT(hadamard_product_test)
 add_test_BOLT(sin)
 
