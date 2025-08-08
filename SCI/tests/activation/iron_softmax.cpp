@@ -37,18 +37,18 @@ int party, port = 32000;
 int num_threads = 1;
 string address = "127.0.0.1";
 
-int32_t dim = num_threads*1;
-int32_t array_size = 128;
-int32_t bw_x = 16;
-int32_t bw_y = 16;
+int32_t dim = num_threads*128;
+int32_t array_size = 768;
+int32_t bw_x = 37;
+int32_t bw_y = 37;
 int32_t s_x = 12;
 int32_t s_y = 12;
 int32_t input_size = dim*array_size;
 
 bool signed_ = true;
 
-uint64_t mask_x = (bw_x == 64 ? -1 : ((1ULL << bw_x) - 1));
-uint64_t mask_y = (bw_y == 64 ? -1 : ((1ULL << bw_y) - 1));
+uint64_t mask_x = (bw_x == 64 ? -1 : ((1ULL << 14) - 1));
+uint64_t mask_y = (bw_y == 64 ? -1 : ((1ULL << 14) - 1));
 
 
 IOPack *iopackArr[MAX_THREADS];

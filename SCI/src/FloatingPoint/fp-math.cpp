@@ -671,10 +671,14 @@ std::tuple<FixArray, FixArray> FPMath::exp4(const FixArray &x){
   FixArray l_short = fix->truncate_reduce(x_inl, scale);
   FixArray l_short_raw = l_short;
   FixArray l = fix->scale_up(l_short, ell, scale);
-
+  // for (int i = 0; i < 100; i++) {
+  //   std::cout << "l[" << i << "] = " << l.data[i] << std::endl;
+  // }
+  
   // l*math.log(2)
   FixArray l_ln2 = fix->mul(l, ln2, ell+scale, all_0.data, all_0.data);
   l_ln2 =  fix->truncate_reduce(l_ln2, scale);
+  
   // l_ln2 =  fix->reduce(l_ln2, ell);
 
   // Get the decimal part  
@@ -682,6 +686,9 @@ std::tuple<FixArray, FixArray> FPMath::exp4(const FixArray &x){
   // Optimization: We don't need that much bit as p \in (-ln2, 0])
   p = fix->reduce(p, scale + 2);
 
+  // for (int i = 0; i < 100; i++) {
+  //   std::cout << "p[" << i << "] = " << p.data[i] << std::endl;
+  // }
   // Polynomial fit
   FixArray poly_p = fix->poly1(p);
   poly_p = fix->extend(poly_p, ell, all_0.data);
@@ -1395,8 +1402,8 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix(const vector<FixArray
   // }
 
   /////////////////////
-  // FixArray ret_flat = fix->div_batch(e_x_flat, sum_e_x, n ,exp_ell, s);
-  FixArray ret_flat = fix->div_batch_opt(e_x_flat, sum_e_x, n ,exp_ell, s);
+  FixArray ret_flat = fix->div_batch(e_x_flat, sum_e_x, n ,exp_ell, s);
+  // FixArray ret_flat = fix->div_batch_opt(e_x_flat, sum_e_x, n ,exp_ell, s);
 
 //////////////////////////
   // printf("n: %d\n", n);
@@ -1567,7 +1574,7 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
   //   iopack->io->recv_data(alice_output, N*n * sizeof(uint64_t));
   //   for (int i = 0; i < N*n; i++){
   //     alice_shifted_shares[i] = (alice_shifted_shares[i] + shifted_x_flat.data[i]) & mask_exp_input;
-  //     printf("pl_shifted_shares[%d] = %lu\n", i, alice_shifted_shares[i]);
+  //     // printf("pl_shifted_shares[%d] = %lu\n", i, alice_shifted_shares[i]);
 
   //     // 输出inf是因为指数太大导致溢出
   //     // alice_shifted_shares[i]是定点数,需要先减去2^37来还原负数,再除以2^12(4096)转换为浮点数
@@ -1593,7 +1600,7 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
   //   delete[] alice_shifted_shares;
   //   delete[] alice_output;
   // }
-  printf("output[384] = %lu\n", output[384]);
+  // printf("output[384] = %lu\n", output[384]);
      
 
   // 正确初始化 e_x_flat
@@ -1653,8 +1660,8 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
   printf("sum_e_x.data[0] = %lu\n", sum_e_x.data[0]);
   printf("sum_e_x.ell = %d\n", sum_e_x.ell);
   printf("sum_e_x.s = %d\n", sum_e_x.s);
-  FixArray ret_flat = fix->div_batch(e_x_flat, sum_e_x, n ,exp_ell, s);
-  // FixArray ret_flat = fix->div_batch_opt(e_x_flat, sum_e_x, n ,exp_ell, s);
+  // FixArray ret_flat = fix->div_batch(e_x_flat, sum_e_x, n ,exp_ell, s);
+  FixArray ret_flat = fix->div_batch_opt(e_x_flat, sum_e_x, n ,exp_ell, s);
 
   BoolArray all_0 = bool_op->input(ALICE, N, uint8_t(0));
   ret_flat = fix->extend(ret_flat, ell);

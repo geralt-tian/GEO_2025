@@ -210,7 +210,7 @@ void GeometricPerspectiveProtocols::mw_conversion(int32_t dim, uint64_t *input,
     }
   } else {
     for (int i = 0; i < dim; i++) {
-      y_heat[i] = (input_lplus1[i]) & mask_lplus1;
+      y_heat[i] = (input_lplus1[i] + (1ULL << act_l_bw)) & mask_lplus1;
     }
   }
   uint64_t *y_star = new uint64_t[dim];
@@ -255,8 +255,22 @@ void GeometricPerspectiveProtocols::mw_conversion(int32_t dim, uint64_t *input,
     c[i] = (delta[i] - bit_mul_output[i]) & mask_out;
   }
   for (int i = 0; i < dim; i++) {
-    output[i] = (lplus1_output[i] + c[i]) & mask_out;
+    output[i] = (lplus1_output[i] - c[i]) & mask_out;
   }
+
+  // for (int i = 0; i < dim; i++) {
+  //   printf("input[%d]: %llu\n", i, input[i]);
+  //   printf("input_lplus1[%d]: %llu\n", i, input_lplus1[i]);
+  //   printf("y_heat[%d]: %llu\n", i, y_heat[i]);
+  //   printf("y_star[%d]: %llu\n", i, y_star[i]);
+  //   printf("delta[%d]: %llu\n", i, delta[i]);
+  //   printf("bit_mul_input[%d]: %llu\n", i, bit_mul_input[i]);
+  //   printf("bit_mul_output[%d]: %llu\n", i, bit_mul_output[i]);
+  //   printf("c[%d]: %llu\n", i, c[i]);
+  //   printf("lplus1_output[%d]: %llu\n", i, lplus1_output[i]);
+  //   printf("output[%d]: %llu\n", i, output[i]);
+  //   printf("\n");
+  // }
   delete[] input_lplus1;
   delete[] y_heat;
   delete[] y_star;
@@ -276,6 +290,7 @@ uint64_t l_star;
 uint64_t mask_out = (out_bw == 64 ? -1 : ((1ULL << out_bw) - 1));
 uint64_t *compare_input = new uint64_t[dim];
   if (B == N / 2) {
+    printf("B == N / 2\n");
     l_star = in_bw;
   } else {
     l_star = ceil(log2(floor(N / (N - 2 * B))));
@@ -308,23 +323,25 @@ uint64_t *M_result = new uint64_t[dim];
     if (B == (N / 2)) {
         // compare(N - x0,x1)
         // uint64_t *compare_input = new uint64_t[dim];
+        printf("B == N / 2\n");
+        printf("l_star: %llu\n", l_star);
       if (party == sci::ALICE) {
         for (int i = 0; i < dim; i++) {
                 compare_input[i] = N - x0_star[i];
             }
         this->mill_eq->compare_with_eq(M, M_eq, compare_input, dim, l_star,
-                                       false, true);
+                                       false);
       } else {
         for (int i = 0; i < dim; i++) {
                 compare_input[i] = input[i];
             }
         this->mill_eq->compare_with_eq(M, M_eq, compare_input, dim, l_star,
-                                       false, true);
+                                       false);
         }
         
         // delete[] compare_input;
     } else {
-
+      printf("B != N / 2\n");
       if (party == sci::ALICE) {
         for (int i = 0; i < dim; i++) {
           compare_input[i] = std::floor((N - x0_star[i]) / (N - 2 * B));
@@ -1232,10 +1249,10 @@ void GeometricPerspectiveProtocols::exp_nag4(
     cross_term(dim, zero, exp_inA, outB, localexp_bw, localexp_bw,
                localexp_bw + localexp_bw);
      }
-     printf("outB[384] = %llu\n", outB[384]);
-     printf("MW_lut[0] = %llu\n", MW_lut[0]);
-     printf("MW_lut[1] = %llu\n", MW_lut[1]);
-     printf("MW_lut[2] = %llu\n", MW_lut[2]);
+    //  printf("outB[384] = %llu\n", outB[384]);
+    //  printf("MW_lut[0] = %llu\n", MW_lut[0]);
+    //  printf("MW_lut[1] = %llu\n", MW_lut[1]);
+    //  printf("MW_lut[2] = %llu\n", MW_lut[2]);
    
      ///////////////////////计算密文*明文///////////////////////
      uint8_t *msb_0 = new uint8_t[dim];
@@ -1332,8 +1349,8 @@ void GeometricPerspectiveProtocols::exp_nag4(
     this->aux->lookup_table<uint64_t>(
         nullptr, MW, y, dim, 2, 2 * localexp_bw - 2 * localexp_f + 2 + out_f);
        }
-       printf("y[384] = %llu\n", y[384]);
-       printf("MW[384] = %llu\n", MW[384]);
+      //  printf("y[384] = %llu\n", y[384]);
+      //  printf("MW[384] = %llu\n", MW[384]);
        uint64_t mask_result = (1ULL << (out_bw)) - 1;
        if (party != sci::ALICE) {
            for (int i = 0; i < dim; i++) {
@@ -1411,11 +1428,11 @@ if (party == sci::ALICE) {
       uint64_t *MW_input = new uint64_t[dim];
       if (party == sci::ALICE) {
           for (int i = 0; i < dim; i++) {
-    MW_input[i] = (inA[i] + 2 * pow_f_input) & mask_in_fplus3;
+    MW_input[i] = (inA[i] + 2 * pow_f_input) & mask_in_bw;
           }
         } else {
           for (int i = 0; i < dim; i++) {
-    MW_input[i] = (inA[i] + 2 * pow_f_input) & mask_in_fplus3;
+    MW_input[i] = (inA[i] + 2 * pow_f_input) & mask_in_bw;
           }
         }
         uint64_t N_input = 1ULL << (in_f + 3);
@@ -1424,30 +1441,32 @@ if (party == sci::ALICE) {
       // mwwithB(dim, MW_B, inA_expinput, MW, in_bw, 2);
       // mwwithB(dim, MW_B, MW_input, MW, in_f + 3, 2);//现在是使用compare在小环上进行计算
       mw_conversion(dim, MW_input, MW, in_bw, in_f + 3, 2);
-        printf("MW[384] = %llu\n", MW[384]);
-      printf("inA[384] = %llu\n", inA[384]);
-      printf("pow_f_input = %llu\n", pow_f_input);
-printf("inA_expinput[384] = %llu\n", inA_expinput[384]);
-printf("MW_input[384] = %llu\n", MW_input[384]);
+//         printf("MW[384] = %llu\n", MW[384]);
+//       printf("inA[384] = %llu\n", inA[384]);
+//       printf("pow_f_input = %llu\n", pow_f_input);
+// printf("inA_expinput[384] = %llu\n", inA_expinput[384]);
+// printf("MW_input[384] = %llu\n", MW_input[384]);
 
 exp_nag4(dim, inA_expinput, exp_result, MW, in_f + 3, in_f, in_f + 3, in_f,
          localexp_bw, localexp_f, locallut_bw, locallut_f);
          
-  printf("exp_result[384] = %llu\n", exp_result[384]);
+  // printf("exp_result[384] = %llu\n", exp_result[384]);
         size_t comm_end_exp = iopack->get_comm();
       std::cout << "exp nag4 comm: " << comm_end_exp - comm_start_exp << std::endl;
 
         this->aux->multiplexer(drelu, exp_result, result, dim, in_bw, in_bw);
 
-      // for (int i = 0; i < 1000; i++) {
+      // for (int i = 0; i < 10; i++) {
       //     printf("inA[%d]: %llu\n", i, inA[i]);
       //     printf("drelu_input[%d]: %d\n", i, drelu_input[i]);
       //     printf("drelu[%d]: %d\n", i, drelu[i]);
+      //     printf("MW_input[%d]: %llu\n", i, MW_input[i]);
+      //     printf("MW[%d]: %llu\n", i, MW[i]);
       //     printf("exp_result[%d]: %llu\n", i, exp_result[i]);
       //     printf("result[%d]: %llu\n", i, result[i]);
       //     printf("\n");
       // }
-      // printf("mask_in_bw: %llu\n", mask_in_bw);
+      printf("mask_in_bw: %llu\n", mask_in_bw);
   }
 
 void GeometricPerspectiveProtocols::exp_nagx(

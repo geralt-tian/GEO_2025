@@ -42,7 +42,7 @@ bool accumulate = true;
 bool precomputed_MSBs = false;
 MultMode mode = MultMode::None;
 
-uint64_t f = 10;
+uint64_t f = 12;
 
 uint64_t f_MW = 28;
 uint64_t bwL_MW = f_MW+2;
@@ -51,11 +51,14 @@ uint64_t N_MW = pow(2, bwL_MW);
 uint64_t mask_N_MW = (bwL_MW == 64 ? -1 : ((1ULL << bwL_MW) - 1));
 uint64_t pow_f = pow(2, f);
 
-int bwL_input = 13;
+int bwL_input = 15;
 uint64_t mask_bwL_input = (bwL_input == 64 ? -1 : ((1ULL << bwL_input) - 1));
 uint64_t N_input = pow(2, bwL_input);
-uint64_t f_input = 10;
+uint64_t f_input = 12;
 uint64_t pow_f_input = pow(2, f_input);
+
+uint64_t f_output = 12;
+uint64_t bwL_output = f_output+10;
 
 Truncation *trunc_oracle;
 AuxProtocols *aux;
@@ -200,7 +203,7 @@ int64_t sin_float(
     __int128 term4 = (__int128)sin_x0 * sin_x1 * MW_sin;
 
     // 5. 累加
-    __int128 sum = term1 + term2 + term3 + term4;
+    __int128 sum = term1 + term2 + term3 - term4;
 
     // 6. 缩放回定点（右移2*lut_frac位，因为三次乘法，每次乘法都带lut_frac位小数）
     int shift = 2 * lut_frac;
@@ -230,11 +233,36 @@ int main(int argc, char **argv) {
   prod = new LinearOT(party, iopack, otpack);
   gp = new GeometricPerspectiveProtocols(party, iopack, otpack);
   aux = new AuxProtocols(party, iopack, otpack);
+  ext = new XTProtocol(party, iopack, otpack);
   uint64_t *inB = new uint64_t[dim];  // Declare the variable "inB"
   uint64_t *outC = new uint64_t[dim]; // Declare the variable "inC"
 
   bool signed_arithmetic = true;
+  
+
+
+  // for (int j = 0; j < 4; j++) {
+  //   MW_sin_lut[j] = MW_sin_lut[j] + (1ULL<<(bwL_MW-1));
+  //   MW_cos_lut[j] = MW_cos_lut[j] + (1ULL<<(bwL_MW-1));
+  // }
   uint64_t *MW = new uint64_t[dim];
+  size_t comm_start = iopack->io->counter;
+  for (int i = 0; i < dim; i++) {
+    inA[i] = (0 + i * 20 +3 ) & mask_bwL_input;
+    inB[i] = (init_input+2 +i * 11) & mask_bwL_input;
+    compute_MW_plain(inA, inB, MW, dim, N_input);
+  }
+
+  //step 1: set bitwidth
+  uint64_t f_t = 12;
+  uint64_t bwL_t = f_t + 2;
+  uint64_t mask_bwL_t = (bwL_t == 64 ? -1 : ((1ULL << bwL_t) - 1));
+  uint64_t f_T = 30;
+  uint64_t bwL_T = f_T + 2;
+  uint64_t mask_bwL_T = (bwL_T == 64 ? -1 : ((1ULL << bwL_T) - 1));
+  uint64_t N_f_T = pow(2, f_T);
+
+  
   uint64_t *MW_sin_lut = new uint64_t[4];
   uint64_t *MW_cos_lut = new uint64_t[4];
   uint64_t *MW_exp = new uint64_t[dim];
@@ -243,43 +271,49 @@ int main(int argc, char **argv) {
   uint64_t *res_exp = new uint64_t[dim];
   for (int i = 0; i < 3; i++) {
     double pow_f_input = std::pow(2.0, f_input);
-    // double pow_f = std::pow(2.0, f_MW);
+    double pow_f = std::pow(2.0, f_T);
     double angle = -i * static_cast<double>(N_input) / pow_f_input; // 这里的angle单位是弧度
     double sin_val = std::sin(angle);
     double cos_val = std::cos(angle);
-    MW_sin_lut[i] = static_cast<uint64_t>(std::round(sin_val * N_f_MW)) & mask_N_MW;
-    MW_cos_lut[i] = static_cast<uint64_t>(std::round(cos_val * N_f_MW)) & mask_N_MW;
-    // printf("MW_sin_lut[%d]: %llu\n", i, MW_sin_lut[i]);
-    // printf("MW_cos_lut[%d]: %llu\n", i, MW_cos_lut[i]);
+    printf("sin_val: %f\n", sin_val);
+    printf("cos_val: %f\n", cos_val);
+    MW_sin_lut[i] = static_cast<uint64_t>(std::round(sin_val * N_f_T)) & mask_bwL_T;
+    MW_cos_lut[i] = static_cast<uint64_t>(std::round(cos_val * N_f_T)) & mask_bwL_T;
+    printf("MW_sin_lut[%d]: %llu\n", i, MW_sin_lut[i]);
+    printf("MW_cos_lut[%d]: %llu\n", i, MW_cos_lut[i]);
   }
   MW_sin_lut[3] = 100;
   MW_cos_lut[3] = 100;
-
-
-  // for (int j = 0; j < 4; j++) {
-  //   MW_sin_lut[j] = MW_sin_lut[j] + (1ULL<<(bwL_MW-1));
-  //   MW_cos_lut[j] = MW_cos_lut[j] + (1ULL<<(bwL_MW-1));
-  // }
-
-  size_t comm_start = iopack->io->counter;
-  for (int i = 0; i < dim; i++) {
-    inA[i] = (0 + i * 1 +3 +4832) & mask_bwL_input;
-    inB[i] = (init_input+2 +4832+i * 1) & mask_bwL_input;
-    compute_MW_plain(inA, inB, MW, dim, N_input);
-  }
+  //step 2: compute sin and cos
   uint64_t *sin_inA = new uint64_t[dim];
   uint64_t *cos_inA = new uint64_t[dim];
   uint64_t *sin_inB = new uint64_t[dim];
   uint64_t *cos_inB = new uint64_t[dim];
   if (party == ALICE) {
-      ring_sin(inA, sin_inA, dim, f_input, mask_bwL_input);
-      ring_cos(inA, cos_inA, dim, f_input, mask_bwL_input);
+      ring_sin(inA, sin_inA, dim, f_t, mask_bwL_t);
+      ring_cos(inA, cos_inA, dim, f_t, mask_bwL_t);
   } else {
-    ring_sin(inA, sin_inA, dim, f_input, mask_bwL_input);
-      ring_cos(inA, cos_inA, dim, f_input, mask_bwL_input);
-    ring_sin(inB, sin_inB, dim, f_input, mask_bwL_input);
-    ring_cos(inB, cos_inB, dim, f_input, mask_bwL_input);
+    ring_sin(inB, sin_inB, dim, f_t, mask_bwL_t);
+    ring_cos(inB, cos_inB, dim, f_t, mask_bwL_t);
   }
+
+  //step3: postive  sin cos
+
+  // if (party == ALICE) {
+  //   for (int i = 0; i < dim; i++) {
+  //     sin_inA[i] = sin_inA[i] + (1ULL<<(f_t - 1));
+  //     cos_inA[i] = cos_inA[i] + (1ULL<<(f_t - 1));
+  //   }
+  // } else {
+  //   for (int i = 0; i < dim; i++) {
+  //     sin_inB[i] = sin_inB[i] + (1ULL<<(f_t - 1));
+  //     cos_inB[i] = cos_inB[i] + (1ULL<<(f_t - 1));
+  //   }
+  // }
+
+
+
+
 
   // if (party == ALICE) {
   // for (int i = 0; i < dim; i++) {
@@ -295,6 +329,8 @@ int main(int argc, char **argv) {
   //   }
   // }
 
+
+  //step 4: compute sin_inA_cos_inB, cos_inA_sin_inB, cos_inA_cos_inB, sin_inA_sin_inB 目前计算的是signed mul，可优化成signed crossterm
   uint64_t *sin_inA_cos_inB = new uint64_t[dim];
   uint64_t *cos_inA_sin_inB = new uint64_t[dim];
   uint64_t *cos_inA_cos_inB = new uint64_t[dim];
@@ -306,326 +342,128 @@ int main(int argc, char **argv) {
   }
 
   if (party == ALICE) {
-    prod->hadamard_product(dim, sin_inA, zero, sin_inA_cos_inB, bwL+1, bwL+1, bwL+1+bwL+1, true, true, MultMode::None);
-    prod->hadamard_product(dim, cos_inA, zero, cos_inA_sin_inB, bwL+1, bwL+1, bwL+1+bwL+1, true, true, MultMode::None);
-    prod->hadamard_product(dim, cos_inA, zero, cos_inA_cos_inB, bwL+1, bwL+1, bwL+1+bwL+1, true, true, MultMode::None);
-    prod->hadamard_product(dim, sin_inA, zero, sin_inA_sin_inB, bwL+1, bwL+1, bwL+1+bwL+1, true, true, MultMode::None);
+    prod->hadamard_product(dim, sin_inA, zero, sin_inA_cos_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::None);
+    prod->hadamard_product(dim, cos_inA, zero, cos_inA_sin_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::None);
+    prod->hadamard_product(dim, cos_inA, zero, cos_inA_cos_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::None);
+    prod->hadamard_product(dim, sin_inA, zero, sin_inA_sin_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::None);
   } else {
-    prod->hadamard_product(dim, zero, cos_inB, sin_inA_cos_inB, bwL+1, bwL+1, bwL+1+bwL+1, true, true, MultMode::None);
-    prod->hadamard_product(dim, zero, sin_inB, cos_inA_sin_inB, bwL+1, bwL+1, bwL+1+bwL+1, true, true, MultMode::None);
-    prod->hadamard_product(dim, zero, cos_inB, cos_inA_cos_inB, bwL+1, bwL+1, bwL+1+bwL+1, true, true, MultMode::None);
-    prod->hadamard_product(dim, zero, sin_inB, sin_inA_sin_inB, bwL+1, bwL+1, bwL+1+bwL+1, true, true, MultMode::None);
+    prod->hadamard_product(dim, zero, cos_inB, sin_inA_cos_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::None);
+    prod->hadamard_product(dim, zero, sin_inB, cos_inA_sin_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::None);
+    prod->hadamard_product(dim, zero, cos_inB, cos_inA_cos_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::None);
+    prod->hadamard_product(dim, zero, sin_inB, sin_inA_sin_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::None);
   }
 
-  /////check the cross_term result
-  // for (int i = 0; i < dim; i++) {
-  //   printf("sin_inA_cos_inB[%d]: %llu\n", i, sin_inA_cos_inB[i]);
-  //   printf("cos_inA_sin_inB[%d]: %llu\n", i, cos_inA_sin_inB[i]);
-  //   printf("cos_inA_cos_inB[%d]: %llu\n", i, cos_inA_cos_inB[i]);
-  //   printf("sin_inA_sin_inB[%d]: %llu\n", i, sin_inA_sin_inB[i]);
-  // }
-
-uint8_t *wrap_sin_inA_cos_inB = new uint8_t[dim];
-uint8_t *wrap_cos_inA_sin_inB = new uint8_t[dim];
-uint8_t *wrap_cos_inA_cos_inB = new uint8_t[dim];
-uint8_t *wrap_sin_inA_sin_inB = new uint8_t[dim];
-
-
-
-if(party != ALICE) {
-  for (int i = 0; i < dim; i++) {
-    sin_inA_cos_inB[i] = sin_inA_cos_inB[i] + (1ULL<<(2*bwL+2  -1));
-    cos_inA_sin_inB[i] = cos_inA_sin_inB[i] + (1ULL<<(2*bwL+2  -1));
-    cos_inA_cos_inB[i] = cos_inA_cos_inB[i] + (1ULL<<(2*bwL+2  -1));
-    sin_inA_sin_inB[i] = sin_inA_sin_inB[i] + (1ULL<<(2*bwL+2  -1));
-  }
-  }
-
-
-  aux->wrap_computation(sin_inA_cos_inB, wrap_sin_inA_cos_inB, dim, 2*bwL+2);
-  aux->wrap_computation(cos_inA_sin_inB, wrap_cos_inA_sin_inB, dim, 2*bwL+2);
-  aux->wrap_computation(cos_inA_cos_inB, wrap_cos_inA_cos_inB, dim, 2*bwL+2);
-  aux->wrap_computation(sin_inA_sin_inB, wrap_sin_inA_sin_inB, dim, 2*bwL+2);
-
-
-//   alice将wrap都发给bob,如果两边的wrap都为1，则赋值为0
-uint8_t *wrap_sin_inA_cos_inB_recv = new uint8_t[dim];
-uint8_t *wrap_cos_inA_sin_inB_recv = new uint8_t[dim];
-uint8_t *wrap_cos_inA_cos_inB_recv = new uint8_t[dim];
-uint8_t *wrap_sin_inA_sin_inB_recv = new uint8_t[dim];
-if (party == ALICE) {
-  iopack->io->send_data(wrap_sin_inA_cos_inB, dim * sizeof(uint8_t));
-  iopack->io->send_data(wrap_cos_inA_sin_inB, dim * sizeof(uint8_t));
-  iopack->io->send_data(wrap_cos_inA_cos_inB, dim * sizeof(uint8_t));
-  iopack->io->send_data(wrap_sin_inA_sin_inB, dim * sizeof(uint8_t));
-} else {
-    iopack->io->recv_data(wrap_sin_inA_cos_inB_recv, dim * sizeof(uint8_t));
-    iopack->io->recv_data(wrap_cos_inA_sin_inB_recv, dim * sizeof(uint8_t));
-    iopack->io->recv_data(wrap_cos_inA_cos_inB_recv, dim * sizeof(uint8_t));
-    iopack->io->recv_data(wrap_sin_inA_sin_inB_recv, dim * sizeof(uint8_t));
-    for (int i = 0; i < dim; i++) {
-      if (wrap_sin_inA_cos_inB[i] == 1 && wrap_sin_inA_cos_inB_recv[i] == 1) {
-        wrap_sin_inA_cos_inB[i] = 0;
-        wrap_sin_inA_cos_inB_recv[i] = 0;
-      }
-      if (wrap_cos_inA_sin_inB[i] == 1 && wrap_cos_inA_sin_inB_recv[i] == 1) {
-        wrap_cos_inA_sin_inB[i] = 0;
-        wrap_cos_inA_sin_inB_recv[i] = 0;
-      }
-      if (wrap_cos_inA_cos_inB[i] == 1 && wrap_cos_inA_cos_inB_recv[i] == 1) {
-        wrap_cos_inA_cos_inB[i] = 0;
-        wrap_cos_inA_cos_inB_recv[i] = 0;
-      }
-      if (wrap_sin_inA_sin_inB[i] == 1 && wrap_sin_inA_sin_inB_recv[i] == 1) {
-        wrap_sin_inA_sin_inB[i] = 0;
-        wrap_sin_inA_sin_inB_recv[i] = 0;
-      }
-    }
-}
-if (party != ALICE) {
-  iopack->io->send_data(wrap_sin_inA_cos_inB_recv, dim * sizeof(uint8_t));
-  iopack->io->send_data(wrap_cos_inA_sin_inB_recv, dim * sizeof(uint8_t));
-  iopack->io->send_data(wrap_cos_inA_cos_inB_recv, dim * sizeof(uint8_t));
-  iopack->io->send_data(wrap_sin_inA_sin_inB_recv, dim * sizeof(uint8_t));
-} else {
-    iopack->io->recv_data(wrap_sin_inA_cos_inB, dim * sizeof(uint8_t));
-    iopack->io->recv_data(wrap_cos_inA_sin_inB, dim * sizeof(uint8_t));
-    iopack->io->recv_data(wrap_cos_inA_cos_inB, dim * sizeof(uint8_t));
-    iopack->io->recv_data(wrap_sin_inA_sin_inB, dim * sizeof(uint8_t));
-}
-// for (int i = 0; i < dim; i++) {
-//   printf("wrap_sin_inA_cos_inB[%d]: %d\n", i, wrap_sin_inA_cos_inB[i]);
-//   printf("wrap_cos_inA_sin_inB[%d]: %d\n", i, wrap_cos_inA_sin_inB[i]);
-//   printf("wrap_cos_inA_cos_inB[%d]: %d\n", i, wrap_cos_inA_cos_inB[i]);
-//   printf("wrap_sin_inA_sin_inB[%d]: %d\n", i, wrap_sin_inA_sin_inB[i]);
-// }
-// uint64_t *prod_output = new uint64_t[dim * 4];
-// uint64_t *diff_output = new uint64_t[dim * 4];
-uint64_t *sin_cos_cos_buffer = new uint64_t[dim * 4];
-uint64_t *cos_sin_cos_buffer = new uint64_t[dim * 4];
-uint64_t *cos_cos_sin_buffer = new uint64_t[dim * 4];
-uint64_t *sin_sin_sin_buffer = new uint64_t[dim * 4];
-uint64_t random_numberbob = 0;
-uint64_t random_numberalice = 0;
-
-
-
-uint64_t mask_MWlut_outC = (1ULL << (bwL + bwL+2)) - 1;
- if (party != ALICE) {
-    for (int i = 0; i < dim; ++i) {
-        uint64_t shift = f_MW + f * 2 - f * 2;
-      for (uint8_t j = 0; j < 4; ++j) {
-        ///////////////////////sin_cos_cos_buffer buffer//////////////////////////////////////////////////////////////////
-        __uint128_t prod0 = (__uint128_t)MW_cos_lut[j] * (__uint128_t)sin_inA_cos_inB[i];
-        // prod_output[i * 4 + j] = prod;
-        // 再减去 MW_lut[j] 和 outC[i]
-        __uint128_t diff0 = (__uint128_t)prod0 - (__uint128_t)MW_cos_lut[j]*(1ULL<<(2*bwL+2 -1)) 
-        -(__uint128_t)sin_inA_cos_inB[i]*(1ULL<<(bwL_MW -1)) + wrap_sin_inA_cos_inB[i] * (1ULL << (2*bwL+2 + bwL_MW -1)) + (1ULL<<(2*bwL+2 + bwL_MW -2)) - wrap_sin_inA_cos_inB[i] * (__uint128_t)MW_cos_lut[j] ;
-        // diff_output[i * 4 + j] = diff;
-        uint64_t res0 = (uint64_t)(((diff0 + (__uint128_t)(1ULL << (shift - 1))) >> shift) & mask_MWlut_outC);
-        sin_cos_cos_buffer[i * 4 + j] = (res0 + random_numberbob) & mask_MWlut_outC;
-        // printf("diff: %llu\n", diff);
-        // printf("buffer[%d]: %llu\n", i * 4 + j, buffer[i * 4 + j]);
-        ///////////////////////cos_sin_cos_buffer buffer//////////////////////////////////////////////////////////////////
-        __uint128_t prod1 = (__uint128_t)MW_cos_lut[j] * (__uint128_t)cos_inA_sin_inB[i];
-        __uint128_t diff1 = (__uint128_t)prod1 - (__uint128_t)MW_cos_lut[j]*(1ULL<<(2*bwL+2 -1)) 
-        -(__uint128_t)cos_inA_sin_inB[i]*(1ULL<<(bwL_MW -1)) + wrap_cos_inA_sin_inB[i] * (1ULL << (2*bwL+2 + bwL_MW -1)) + (1ULL<<(2*bwL+2 + bwL_MW -2)) - wrap_cos_inA_sin_inB[i] * (__uint128_t)MW_cos_lut[j] ;
-        uint64_t res1 = (uint64_t)(((diff1 + (__uint128_t)(1ULL << (shift - 1))) >> shift) & mask_MWlut_outC);
-        cos_sin_cos_buffer[i * 4 + j] = (res1 + random_numberbob) & mask_MWlut_outC;
-        ///////////////////////cos_cos_sin_buffer buffer//////////////////////////////////////////////////////////////////
-        __uint128_t prod2 = (__uint128_t)MW_sin_lut[j] * (__uint128_t)cos_inA_cos_inB[i];
-        __uint128_t diff2 = (__uint128_t)prod2 - (__uint128_t)MW_sin_lut[j]*(1ULL<<(2*bwL+2 -1)) 
-        -(__uint128_t)cos_inA_cos_inB[i]*(1ULL<<(bwL_MW -1)) + wrap_cos_inA_cos_inB[i] * (1ULL << (2*bwL+2 + bwL_MW -1)) + (1ULL<<(2*bwL+2 + bwL_MW -2)) - wrap_cos_inA_cos_inB[i] * (__uint128_t)MW_sin_lut[j] ;
-         // 这里假设fc = f*2，和原代码一致
-        uint64_t res2 = (uint64_t)(((diff2 + (__uint128_t)(1ULL << (shift - 1))) >> shift) & mask_MWlut_outC);
-        cos_cos_sin_buffer[i * 4 + j] = (res2 + random_numberbob) & mask_MWlut_outC;
-        ///////////////////////sin_sin_sin_buffer buffer//////////////////////////////////////////////////////////////////
-        __uint128_t prod3 = (__uint128_t)MW_sin_lut[j] * (__uint128_t)sin_inA_sin_inB[i];
-        __uint128_t diff3 = (__uint128_t)prod3 - (__uint128_t)MW_sin_lut[j]*(1ULL<<(2*bwL+2 -1)) 
-        -(__uint128_t)sin_inA_sin_inB[i]*(1ULL<<(bwL_MW -1)) + wrap_sin_inA_sin_inB[i] * (1ULL << (2*bwL+2 + bwL_MW -1)) + (1ULL<<(2*bwL+2 + bwL_MW -2)) - wrap_sin_inA_sin_inB[i] * (__uint128_t)MW_sin_lut[j] ;
-        uint64_t res3 = (uint64_t)(((diff3 + (__uint128_t)(1ULL << (shift - 1))) >> shift) & mask_MWlut_outC);
-        sin_sin_sin_buffer[i * 4 + j] = (res3 + random_numberbob) & mask_MWlut_outC;
-      }
-    }
-    iopack->io->send_data(sin_cos_cos_buffer, dim * 4 * sizeof(uint64_t));
-    iopack->io->send_data(cos_sin_cos_buffer, dim * 4 * sizeof(uint64_t));
-    iopack->io->send_data(cos_cos_sin_buffer, dim * 4 * sizeof(uint64_t));
-    iopack->io->send_data(sin_sin_sin_buffer, dim * 4 * sizeof(uint64_t));
-    // for (int i = 0; i < dim; i++) {
-    //   for (int j = 0; j < 4; j++) {
-    //   printf("sin_cos_cos_buffer[%d][%d]: %llu\n", i, j, sin_cos_cos_buffer[i * 4 + j]);
-    //   printf("cos_sin_cos_buffer[%d][%d]: %llu\n", i, j, cos_sin_cos_buffer[i * 4 + j]);
-    //   printf("cos_cos_sin_buffer[%d][%d]: %llu\n", i, j, cos_cos_sin_buffer[i * 4 + j]);
-    //   printf("sin_sin_sin_buffer[%d][%d]: %llu\n", i, j, sin_sin_sin_buffer[i * 4 + j]);
-    //   }
-    // }
-  } else {
-    iopack->io->recv_data(sin_cos_cos_buffer, dim * 4 * sizeof(uint64_t));
-    iopack->io->recv_data(cos_sin_cos_buffer, dim * 4 * sizeof(uint64_t));
-    iopack->io->recv_data(cos_cos_sin_buffer, dim * 4 * sizeof(uint64_t));
-    iopack->io->recv_data(sin_sin_sin_buffer, dim * 4 * sizeof(uint64_t));
-  }
-// todo
-  // uint64_t *y = new uint64_t[dim];
-  uint64_t *sin_cos_cos_y = new uint64_t[dim ];
-  uint64_t *cos_sin_cos_y = new uint64_t[dim ];
-  uint64_t *cos_cos_sin_y = new uint64_t[dim ];
-  uint64_t *sin_sin_sin_y = new uint64_t[dim ];
-  if (party == ALICE) {
-    uint64_t **sin_cos_cos_spec = new uint64_t *[dim];
-    uint64_t **cos_sin_cos_spec = new uint64_t *[dim];
-    uint64_t **cos_cos_sin_spec = new uint64_t *[dim];
-    uint64_t **sin_sin_sin_spec = new uint64_t *[dim];
-    for (int i = 0; i < dim; ++i) {
-      sin_cos_cos_spec[i] = new uint64_t[4];
-      cos_sin_cos_spec[i] = new uint64_t[4];
-      cos_cos_sin_spec[i] = new uint64_t[4];
-      sin_sin_sin_spec[i] = new uint64_t[4];
-      uint64_t shift = f_MW + f * 2 - f * 2;
-      for (uint8_t j = 0; j < 4; ++j) {
-        ///////////////////////sin_cos_cos_spec buffer//////////////////////////////////////////////////////////////////
-        __uint128_t prod0 = (__uint128_t)MW_cos_lut[j] * (__uint128_t)sin_cos_cos_buffer[i];
-        __uint128_t diff0 = (__uint128_t)prod0 - (__uint128_t)sin_inA_cos_inB[i]*(1ULL<<(bwL_MW -1)) + wrap_sin_inA_cos_inB[i] * (1ULL << (2*bwL+2 + bwL_MW -1)) - wrap_sin_inA_cos_inB[i] * (__uint128_t)MW_cos_lut[j] ;
-         uint64_t res0 = (uint64_t)(((diff0 + (__uint128_t)(1ULL << (shift - 1))) >> shift) & mask_MWlut_outC);
-        sin_cos_cos_spec[i][j] = (res0 + random_numberalice +sin_cos_cos_buffer[i * 4 + j]) & mask_MWlut_outC;
-        ///////////////////////cos_sin_cos_spec buffer//////////////////////////////////////////////////////////////////
-        __uint128_t prod1 = (__uint128_t)MW_cos_lut[j] * (__uint128_t)cos_sin_cos_buffer[i];
-        __uint128_t diff1 = (__uint128_t)prod1 - (__uint128_t)cos_inA_sin_inB[i]*(1ULL<<(bwL_MW -1)) + wrap_cos_inA_sin_inB[i] * (1ULL << (2*bwL+2 + bwL_MW -1)) - wrap_cos_inA_sin_inB[i] * (__uint128_t)MW_cos_lut[j] ;
-        uint64_t res1 = (uint64_t)(((diff1 + (__uint128_t)(1ULL << (shift - 1))) >> shift) & mask_MWlut_outC);
-        cos_sin_cos_spec[i][j] = (res1 + random_numberalice +cos_sin_cos_buffer[i * 4 + j]) & mask_MWlut_outC;
-        ///////////////////////cos_cos_sin_spec buffer//////////////////////////////////////////////////////////////////
-        __uint128_t prod2 = (__uint128_t)MW_sin_lut[j] * (__uint128_t)cos_cos_sin_buffer[i];
-        __uint128_t diff2 = (__uint128_t)prod2 - (__uint128_t)cos_inA_cos_inB[i]*(1ULL<<(bwL_MW -1)) + wrap_cos_inA_cos_inB[i] * (1ULL << (2*bwL+2 + bwL_MW -1)) - wrap_cos_inA_cos_inB[i] * (__uint128_t)MW_sin_lut[j] ;
-        uint64_t res2 = (uint64_t)(((diff2 + (__uint128_t)(1ULL << (shift - 1))) >> shift) & mask_MWlut_outC);
-        cos_cos_sin_spec[i][j] = (res2 + random_numberalice +cos_cos_sin_buffer[i * 4 + j]) & mask_MWlut_outC;
-        ///////////////////////sin_sin_sin_spec buffer//////////////////////////////////////////////////////////////////
-        __uint128_t prod3 = (__uint128_t)MW_sin_lut[j] * (__uint128_t)sin_sin_sin_buffer[i];
-        __uint128_t diff3 = (__uint128_t)prod3 - (__uint128_t)sin_inA_sin_inB[i]*(1ULL<<(bwL_MW -1)) + wrap_sin_inA_sin_inB[i] * (1ULL << (2*bwL+2 + bwL_MW -1)) - wrap_sin_inA_sin_inB[i] * (__uint128_t)MW_sin_lut[j] ;
-        uint64_t res3 = (uint64_t)(((diff3 + (__uint128_t)(1ULL << (shift - 1))) >> shift) & mask_MWlut_outC);
-        sin_sin_sin_spec[i][j] = (res3 + random_numberalice +sin_sin_sin_buffer[i * 4 + j]) & mask_MWlut_outC;
-      }
-    }
-    aux->lookup_table<uint64_t>(sin_cos_cos_spec, nullptr, nullptr, dim, 2,
-                                 bwL + bwL+2);
-    aux->lookup_table<uint64_t>(cos_sin_cos_spec, nullptr, nullptr, dim, 2,
-                                 bwL + bwL+2);
-    aux->lookup_table<uint64_t>(cos_cos_sin_spec, nullptr, nullptr, dim, 2,
-                                 bwL + bwL+2);
-    aux->lookup_table<uint64_t>(sin_sin_sin_spec, nullptr, nullptr, dim, 2,
-                                 bwL + bwL+2);
-
-    // for (int i = 0; i < dim; i++) {
-    //   for (int j = 0; j < 4; j++) {
-    //   printf("sin_cos_cos_spec[%d][%d]: %llu\n", i, j, sin_cos_cos_spec[i][j]);
-    //   printf("cos_sin_cos_spec[%d][%d]: %llu\n", i, j, cos_sin_cos_spec[i][j]);
-    //   printf("cos_cos_sin_spec[%d][%d]: %llu\n", i, j, cos_cos_sin_spec[i][j]);
-    //   printf("sin_sin_sin_spec[%d][%d]: %llu\n", i, j, sin_sin_sin_spec[i][j]);
-    //   }
-    // }
-    for (int i = 0; i < dim; ++i) {
-      delete[] sin_cos_cos_spec[i];
-      delete[] cos_sin_cos_spec[i];
-      delete[] cos_cos_sin_spec[i];
-      delete[] sin_sin_sin_spec[i];
-    }
-    delete[] sin_cos_cos_spec;
-    delete[] cos_sin_cos_spec;
-    delete[] cos_cos_sin_spec;
-    delete[] sin_sin_sin_spec;
-  } else  {
-    // printf("party is %d\n",party);
-    aux->lookup_table<uint64_t>(nullptr, MW, sin_cos_cos_y, dim, 2,bwL + bwL+2);
-    aux->lookup_table<uint64_t>(nullptr, MW, cos_sin_cos_y, dim, 2,bwL + bwL+2);
-    aux->lookup_table<uint64_t>(nullptr, MW, cos_cos_sin_y, dim, 2,bwL + bwL+2);
-    aux->lookup_table<uint64_t>(nullptr, MW, sin_sin_sin_y, dim, 2,bwL + bwL+2);
-  }
-  if (party != ALICE) {
-    for (int i = 0; i < dim; i++) {
-      res_exp[i] =
-          ((sin_cos_cos_y[i] - random_numberbob) +
-          (cos_sin_cos_y[i] - random_numberbob) +
-          (cos_cos_sin_y[i] - random_numberbob) +
-          (sin_sin_sin_y[i] - random_numberbob) )& mask_MWlut_outC;
-    }
-  } else {
-    for (int i = 0; i < dim; i++) {
-      res_exp[i] =
-          (- random_numberalice *4) & mask_MWlut_outC; //这里的位宽到底选多少？
-    }
-  }
   
-
-  ///计算明文值
-  double *res_exp_plain = new double[dim];
-  double pow_double = pow(2, 10.0);      // 1024.0
-  double N_input_double = pow(2, 13.0);  // 8192.0
-  if (party != ALICE) {
-    for (int i = 0; i < dim; i++) {
-      double inA_fp = static_cast<double>(inA[i]) / pow_double;
-      double inB_fp = static_cast<double>(inB[i]) / pow_double;
-      double MW_angle = -static_cast<double>(MW[i]) * N_input_double / pow_double;
-
-      double res = std::sin(inA_fp) * std::cos(inB_fp) * std::cos(MW_angle)
-           + std::cos(inA_fp) * std::sin(inB_fp) * std::cos(MW_angle)
-           + std::cos(inA_fp) * std::cos(inB_fp) * std::sin(MW_angle)
-           - std::sin(inA_fp) * std::sin(inB_fp) * std::sin(MW_angle);
-      res_exp_plain[i] = res;
-      // printf("inA[%d]: %d\n", i, inA[i]);
-      // printf("inB[%d]: %d\n", i, inB[i]);
-      // printf("MW_fp: %f\n", i, MW_angle);
-      // printf("N_input: %d\n", N_input_double);
-      // printf("pow_f: %d\n", pow_double);
-      // printf("std::sin(inA[%d] / pow_f): %f\n", i, std::sin(inA[i] / pow_f));
-      // printf("std::cos(inB[%d] / pow_f): %f\n", i, std::cos(inB[i] / pow_f));
-      // // printf("N_input_fp: %f\n",  N_input_fp);
-      // printf("-MW[%d] * N_input / pow_f: %f\n", i, -MW[i] * N_input / pow_f);
-      // printf("DEBUG: -MW[%d] * N_input / pow_f = %f\n", i, -MW[i] * N_input / (double)pow_f);
-      // printf("DEBUG: -MW[%d] * N_input_double / pow_double = %f\n", i, -MW[i] * N_input_double / pow_double);
-      // printf("std::cos(-MW[%d] * N_input_double / pow_double): %f\n", i, std::cos(MW_angle));
-      // printf("std::sin(inA[%d] / pow_f): %f\n", i, std::sin(inA[i] / pow_f));
-      // printf("std::sin(inB[%d] / pow_f): %f\n", i, std::sin(inB[i] / pow_f));
-      // printf("std::sin(-MW[%d] * N_input / pow_f): %f\n", i, std::sin(-MW[i] * N_input / pow_f));
-      // printf("res[%d]: %f\n", i, res);
-      // printf("res_exp_plain[%d]: %f\n", i, res_exp_plain[i]);
+  for (int i = 0; i < 100; i++) {
+    printf("\n");
+    if (party == ALICE) {
+      printf("sin_inA[%d]: %llu\n", i, sin_inA[i]);
+      printf("cos_inA[%d]: %llu\n", i, cos_inA[i]);
+      printf("sin_inA_cos_inB[%d]: %llu\n", i, sin_inA_cos_inB[i]);
+      printf("cos_inA_sin_inB[%d]: %llu\n", i, cos_inA_sin_inB[i]);
+      printf("cos_inA_cos_inB[%d]: %llu\n", i, cos_inA_cos_inB[i]);
+      printf("sin_inA_sin_inB[%d]: %llu\n", i, sin_inA_sin_inB[i]);
+    } else {
+      printf("sin_inB[%d]: %llu\n", i, sin_inB[i]);
+      printf("cos_inB[%d]: %llu\n", i, cos_inB[i]);
+      printf("sin_inA_cos_inB[%d]: %llu\n", i, sin_inA_cos_inB[i]);
+      printf("cos_inA_sin_inB[%d]: %llu\n", i, cos_inA_sin_inB[i]);
+      printf("cos_inA_cos_inB[%d]: %llu\n", i, cos_inA_cos_inB[i]);
+      printf("sin_inA_sin_inB[%d]: %llu\n", i, sin_inA_sin_inB[i]);
     }
   }
-  //   for (int i = 0; i < dim; i++) {
-  //     // int64_t sin_inA_int = sign_extend_l(sin_inA[i], bwL_input);
-  //     // int64_t cos_inB_int = sign_extend_l(cos_inB[i], bwL_input);
-  //     // int64_t cos_inA_int = sign_extend_l(cos_inA[i], bwL_input);
-  //     // int64_t sin_inB_int = sign_extend_l(sin_inB[i], bwL_input);
-  //     // uint64_t MW_cos_lut_int = sign_extend_l(MW_cos_lut[MW[i]], bwL_MW);
-  //     // uint64_t MW_sin_lut_int = sign_extend_l(MW_sin_lut[MW[i]], bwL_MW);
-  //     uint64_t term1 = sin_inA[i] * cos_inB[i] * MW_cos_lut[MW[i]];
-  //     uint64_t term2 = cos_inA[i] * sin_inB[i] * MW_cos_lut[MW[i]];
-  //     uint64_t term3 = cos_inA[i] * cos_inB[i] * MW_sin_lut[MW[i]];
-  //     uint64_t term4 = sin_inA[i] * sin_inB[i] * MW_sin_lut[MW[i]];
-    
-  //   uint64_t sum = (term1 + term2 + term3 + term4) & ((1ULL << 13*2+30+1) - 1);
-  //   sum >>= f_MW; // 先右移
-  //   uint64_t sum_ring = (uint64_t)sum & ((1ULL << 26+1  ) - 1);
-  //   res_exp[i] = sum_ring;
-  //   printf("res_exp[%d]: %llu\n", i, res_exp[i]);
-  //   printf("sin_inA[%d]: %llu\n", i, sin_inA[i]);
-  //   printf("cos_inB[%d]: %llu\n", i, cos_inB[i]);
-  //   printf("cos_inA[%d]: %llu\n", i, cos_inA[i]);
-  //   printf("sin_inB[%d]: %llu\n", i, sin_inB[i]);
-  //   printf("MW_cos_lut[%d]: %llu\n", i, MW_cos_lut[MW[i]]);
-  //   printf("MW_sin_lut[%d]: %llu\n", i, MW_sin_lut[MW[i]]);
-  //   // printf("sin_inA_int: %lld\n", sin_inA_int);
-  //   // printf("cos_inB_int: %lld\n", cos_inB_int);
-  //   // printf("cos_inA_int: %lld\n", cos_inA_int);
-  //   // printf("sin_inB_int: %lld\n", sin_inB_int);
-  //   // printf("MW_cos_lut_int: %lld\n", MW_cos_lut_int);
-  //   // printf("MW_sin_lut_int: %lld\n", MW_sin_lut_int);
-  //   printf("term1: %llu\n", term1);
-  //   printf("term2: %llu\n", term2);
-  //   printf("term3: %llu\n", term3);
-  //   printf("term4: %llu\n", term4);
-  //   printf("sum: %llu\n", sum);
-  //   printf("res_exp[%d]: %llu\n", i, res_exp[i]);
-  //   }
-  // }
+
+  uint64_t *sc_add_cs_lut_buffer = new uint64_t[dim * 4];
+  uint64_t *cc_min_ss_lut_buffer = new uint64_t[dim * 4];
+  uint64_t mask_2bwL_t = (2*bwL_t == 64 ? -1 : ((1ULL << (2*bwL_t)) - 1));
+  //step 14: compute select table
+  for (int i = 0; i < 4; i++) {
+    uint64_t *sc_add_cs = new uint64_t[dim];
+    uint64_t *cc_min_ss = new uint64_t[dim];
+    uint64_t *sc_add_cs_lut = new uint64_t[dim];
+    uint64_t *cc_min_ss_lut = new uint64_t[dim];
+    for (int j = 0; j < dim; j++) {
+      sc_add_cs[j] = (sin_inA_cos_inB[j] + cos_inA_sin_inB[j]) & mask_2bwL_t;
+      cc_min_ss[j] = (cos_inA_cos_inB[j] - sin_inA_sin_inB[j]) & mask_2bwL_t;
+    }
+    uint64_t *MW_cos_lut_extend = new uint64_t[dim];
+    uint64_t *MW_sin_lut_extend = new uint64_t[dim];
+    for (int j = 0; j < dim; j++) {
+      MW_cos_lut_extend[j] = MW_cos_lut[i];
+      MW_sin_lut_extend[j] = MW_sin_lut[i];
+    }
+    if (party == ALICE) {
+      prod->hadamard_product(dim, sc_add_cs , MW_cos_lut_extend, sc_add_cs_lut, 2*bwL_t, bwL_T, 2*bwL_t+bwL_T, true, true, MultMode::None);
+      prod->hadamard_product(dim, cc_min_ss , MW_sin_lut_extend, cc_min_ss_lut, 2*bwL_t, bwL_T, 2*bwL_t+bwL_T, true, true, MultMode::None);
+    } else {
+      prod->hadamard_product(dim, sc_add_cs , zero         , sc_add_cs_lut, 2*bwL_t, bwL_T, 2*bwL_t+bwL_T, true, true, MultMode::None);
+      prod->hadamard_product(dim, cc_min_ss , zero         , cc_min_ss_lut, 2*bwL_t, bwL_T, 2*bwL_t+bwL_T, true, true, MultMode::None);
+    }
+    for (int j = 0; j < 100; j++) {
+      printf("sc_add_cs[%d][%d]: %llu\n", i, j, sc_add_cs[j]);
+      printf("cc_min_ss[%d][%d]: %llu\n", i, j, cc_min_ss[j]);
+      printf("MW_cos_lut_extend[%d][%d]: %llu\n", i, j, MW_cos_lut_extend[j]);
+      printf("MW_sin_lut_extend[%d][%d]: %llu\n", i, j, MW_sin_lut_extend[j]);
+      printf("sc_add_cs_lut[%d][%d]: %llu\n", i, j, sc_add_cs_lut[j]);
+      printf("cc_min_ss_lut[%d][%d]: %llu\n", i, j, cc_min_ss_lut[j]);
+      
+    }
+    // 写入：按 i 主序（每个 i 是一个连续的 dim 块）
+    for (int j = 0; j < dim; j++) {
+      sc_add_cs_lut_buffer[i * dim + j] = sc_add_cs_lut[j];
+      cc_min_ss_lut_buffer[i * dim + j] = cc_min_ss_lut[j];
+    }
+  }
+  //step 16: send lut buffer to bob
+  uint64_t *sc_add_cs_lut_buffer_recv = new uint64_t[dim * 4];
+  uint64_t *cc_min_ss_lut_buffer_recv = new uint64_t[dim * 4];
+  uint64_t mask_2bwL_t_bwL_T = (2*bwL_t+bwL_T == 64 ? -1 : ((1ULL << (2*bwL_t+bwL_T)) - 1));
+  if (party != ALICE) {
+    iopack->io->send_data(sc_add_cs_lut_buffer, dim * 4 * sizeof(uint64_t));
+    iopack->io->send_data(cc_min_ss_lut_buffer, dim * 4 * sizeof(uint64_t));
+  } else {
+    iopack->io->recv_data(sc_add_cs_lut_buffer_recv, dim * 4 * sizeof(uint64_t));
+    iopack->io->recv_data(cc_min_ss_lut_buffer_recv, dim * 4 * sizeof(uint64_t));
+    for (int i = 0; i < dim; i++) {
+      for (int j = 0; j < 4; j++) {
+        sc_add_cs_lut_buffer[i * 4 + j] = (sc_add_cs_lut_buffer[i * 4 + j] + sc_add_cs_lut_buffer_recv[i * 4 + j]) & mask_2bwL_t_bwL_T;
+        cc_min_ss_lut_buffer[i * 4 + j] = (cc_min_ss_lut_buffer[i * 4 + j] + cc_min_ss_lut_buffer_recv[i * 4 + j]) & mask_2bwL_t_bwL_T;
+      }
+    }
+  }
+
+
+  // uint64_t *temp0 = new uint64_t[dim];
+  // uint64_t *temp1 = new uint64_t[dim];
+  uint64_t *T_add_T = new uint64_t[dim];
+  if (party == ALICE) {
+    uint64_t **sc_cs_lut_spec = new uint64_t *[dim];
+    // uint64_t **cc_ss_lut_spec = new uint64_t *[dim];
+    for (int i = 0; i < dim; i++) {
+      sc_cs_lut_spec[i] = new uint64_t[4];
+      // cc_ss_lut_spec[i] = new uint64_t[4];
+      for (int j = 0; j < 4; j++) {
+        sc_cs_lut_spec[i][j] = (sc_add_cs_lut_buffer[j * dim + i] + cc_min_ss_lut_buffer[j * dim + i]) & mask_2bwL_t_bwL_T;
+        // cc_ss_lut_spec[i][j] = ;
+      }
+    }
+    aux->lookup_table<uint64_t>(sc_cs_lut_spec, nullptr, nullptr, dim, 2, 2*bwL_t+bwL_T);
+    // aux->lookup_table<uint64_t>(cc_ss_lut_spec, nullptr, nullptr, dim, 2, 2*bwL_t+bwL_T);
+  }
+  else {
+    aux->lookup_table<uint64_t>(nullptr, MW, T_add_T, dim, 2,2*bwL_t+bwL_T);
+
+  }
+
+
+  uint64_t *T_add_T_reduce = new uint64_t[dim];
+  for (int i = 0; i < dim; i++) {
+    T_add_T_reduce[i] = T_add_T[i] >> (2*f_t+f_T-f_output);
+  }
+
+  ext->s_extend(dim, T_add_T_reduce, res_exp, f_output+5, bwL_output, nullptr);
+
+
 
   
   uint64_t *res_exp_alice = new uint64_t[dim];
@@ -636,30 +474,40 @@ uint64_t mask_MWlut_outC = (1ULL << (bwL + bwL+2)) - 1;
     }
     double *res_sin_plain = new double[dim];
     double *ideal_exp_plain = new double[dim];
-    double ulp = 1.0 / (1 << 10); 
-    mask_MWlut_outC = (1ULL << (26+1)) - 1;
-    for (int i = 0; i < dim; i++) {
-        res_sin_plain[i] = static_cast<double>((res_exp_alice[i] + res_exp[i]) & mask_MWlut_outC) / std::pow(2, 2*f);
+    double ulp = 1.0 / (1 << f_input); 
+    uint64_t mask_MWlut_outC = (1ULL << bwL_output) - 1;
+    for (int i = 0; i < 1000; i++) {
+        // res_sin_plain[i] = static_cast<double>((res_exp_alice[i] + res_exp[i]) & mask_MWlut_outC) / std::pow(2, f_output);
+        res_sin_plain[i] = fix2double(res_exp_alice[i], res_exp[i], bwL_output, f_output);
         ideal_exp_plain[i] = std::sin(fix2double(inA[i], inB[i], bwL_input, f_input));
         // printf("MW: %d\n", MW[i]);
         // printf("inA[%d]: %llu\n", i, inA[i]);
         // printf("inB[%d]: %llu\n", i, inB[i]);
         // printf("res_exp[%d]: %llu\n", i, res_exp[i]);
-        printf("res_sin_plain[%d]: %f\n", i, res_exp_plain[i]);
+        printf("inA[%u]: %u\n", i, inA[i]);
+        printf("inB[%u]: %u\n", i, inB[i]);
+        printf("MW: %d\n", MW[i]);
+        printf("res_exp_alice[%d]: %llu\n", i, res_exp_alice[i]);
+        printf("res_exp[%d]: %llu\n", i, res_exp[i]);
+        printf("res_sin_plain[%d]: %.10f\n", i, res_sin_plain[i]);
         printf("fix2double(inA[%d], inB[%d], bwL_input, f_input): %f\n", i, i, fix2double(inA[i], inB[i], bwL_input, f_input));
-        printf("ideal_exp_plain[%d]: %f\n", i, ideal_exp_plain[i]);
-        double ulp_error = fabs(ideal_exp_plain[i] - res_exp_plain[i]) / ulp;
-        printf("ULP [%d]: %.2f\n", i, ulp_error);
+        printf("ideal_exp_plain[%d]: %.10f\n", i, ideal_exp_plain[i]);
+        double ulp_error = fabs(ideal_exp_plain[i] - res_sin_plain[i]) / ulp;
+        printf("ULP [%d]: %.6f\n", i, ulp_error);
+    }
+    for (int i = 0; i < 4; i++) {
+        printf("MW_cos_lut[%d]: %llu\n", i, MW_cos_lut[i]);
+        printf("MW_sin_lut[%d]: %llu\n", i, MW_sin_lut[i]);
     }
         double ulp_sum = 0.0;
     double ulp_max = 0.0;
     for (int i = 0; i < dim; i++) {
-    double ulp = 1.0 / (1 << 10); // 2的12次精度
-    double error = std::abs(res_exp_plain[i] - ideal_exp_plain[i]);
+    double ulp = 1.0 / (1 << f_input); // 2的f_input次精度 
+    double error = std::abs(res_sin_plain[i] - ideal_exp_plain[i]);
     ulp_sum += error / ulp;
     ulp_max = std::max(ulp_max, error / ulp);
   }
-  printf("ULP sum: %f\n", ulp_sum);
+  printf("ULP avg: %f\n", ulp_sum / dim);
   printf("ULP max: %f\n", ulp_max);
 
   delete prod;

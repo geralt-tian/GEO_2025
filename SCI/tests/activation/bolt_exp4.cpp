@@ -1,23 +1,17 @@
-// Test file for exp_nagx function
-// This file tests the exp_nagx function which computes exp(-x) where x > 0
+// Test file for exp4 function
+// This file tests the exp4 function which computes exp(x) using polynomial approximation
 // Including ULP error analysis, communication measurement, and timing
-
-#include <cstdint>
-#include <cstdio>
-#include <iostream>
-#include <chrono>
-#include <cmath>
-#include <fstream>
-#include <string>
-#include <vector>
-#include <limits>
-#include <random>
-#include <cstring>
 
 #include "LinearOT/linear-ot.h"
 #include "utils/emp-tool.h"
+#include <cstdint>
+#include <cstdio>
+#include <iostream>
+
 #include "FloatingPoint/floating-point.h"
 #include "FloatingPoint/fp-math.h"
+#include <limits>
+#include <random>
 #include "BuildingBlocks/aux-protocols.h"
 #include "BuildingBlocks/geometric_perspective_protocols.h"
 #include "BuildingBlocks/truncation.h"
@@ -25,31 +19,34 @@
 #include "Millionaire/equality.h"
 #include "Millionaire/millionaire.h"
 #include "Millionaire/millionaire_with_equality.h"
+#include <chrono>
+#include <cmath>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <cstring>
 
 using namespace sci;
 using namespace std;
 
+// Global parameters
 int party, port = 32000;
 string address = "127.0.0.1";
 IOPack *iopack;
 OTPack *otpack;
 LinearOT *prod;
-GeometricPerspectiveProtocols *gp;
 AuxProtocols *aux;
+FPMath *fpmath;
 
-// Test parameters for exp_nagx
-int dim = 1048576/4;  // Test with 1024 elements
-// int dim = 1024;
-int32_t in_bw = 16;      // Input bit width
-int32_t in_f = 12;       // Input fractional bits
-
-int32_t localexp_f = 10;   // Local exp fractional bits
-int32_t localexp_bw = localexp_f + 13; // Local exp bit width
-
-int32_t locallut_f = 32;   // Local LUT fractional bits
-int32_t locallut_bw = locallut_f +2; // Local LUT bit width
-
-uint64_t mask_in = (in_bw == 64 ? -1 : ((1ULL << in_bw) - 1));
+// Test parameters - configurable
+int dim = 1024; 
+// int dim = 1048576/4;              // Number of test elements
+int32_t ell = 37;           // Input bit width
+int32_t scale = 12;         // Input fractional bits
+double test_range_min = -10.0;  // Minimum test value
+double test_range_max = 0;   // Maximum test value
+bool verbose = false;        // Verbose output
+double ulp_threshold = 500.0;  // ULP error threshold for reporting high error cases
 
 // Convert fixed point to double
 double fix2double(uint64_t x, uint64_t y, int32_t bw, int32_t f) {
@@ -72,84 +69,104 @@ uint64_t double2fix(double val, int32_t f, int32_t bw) {
 }
 
 int main(int argc, char **argv) {
+    // Parse command line arguments
     ArgMapping amap;
     amap.arg("r", party, "Role of party: ALICE = 1; BOB = 2");
     amap.arg("p", port, "Port Number");
     amap.arg("ip", address, "IP Address of server (ALICE)");
     amap.arg("d", dim, "Number of elements to test");
+    amap.arg("ell", ell, "Input bit width");
+    amap.arg("s", scale, "Input fractional bits");
+    amap.arg("min", test_range_min, "Minimum test value");
+    amap.arg("max", test_range_max, "Maximum test value");
+    amap.arg("v", verbose, "Verbose output");
+    amap.arg("ulp_thresh", ulp_threshold, "ULP error threshold for reporting high error cases");
     amap.parse(argc, argv);
 
-    cout << "=== exp_nagx Test Suite ===" << endl;
-    cout << "Testing exp(-x) where x > 0" << endl;
-    cout << "Party: " << (party == sci::ALICE ? "ALICE" : "BOB") << endl;
+    cout << "=== exp4 Test Configuration ===" << endl;
+    cout << "Party: " << (party == ALICE ? "ALICE" : "BOB") << endl;
     cout << "Dimensions: " << dim << endl;
-    cout << "Input format: " << in_bw << "." << in_f << endl;
+    cout << "Input format: " << ell << "." << scale << endl;
+    cout << "Test range: [" << test_range_min << ", " << test_range_max << "]" << endl;
+    cout << "ULP error threshold: " << ulp_threshold << endl;
+    cout << "================================" << endl;
 
-    // Initialize communication
+    // Initialize communication and protocols
     iopack = new IOPack(party, port, address);
     otpack = new OTPack(iopack, party);
     prod = new LinearOT(party, iopack, otpack);
-    gp = new GeometricPerspectiveProtocols(party, iopack, otpack);
     aux = new AuxProtocols(party, iopack, otpack);
+    fpmath = new FPMath(party, iopack, otpack);
 
     // Allocate arrays
     uint64_t *inA = new uint64_t[dim];
     uint64_t *result = new uint64_t[dim];
-
-    // Generate test data with fixed seed for reproducibility
-    std::mt19937 gen(42);
-    std::uniform_real_distribution<double> dis(-8, -0.0001); // range [-10,0] for exp_nagx
-
+    
+    // Generate random test data
+    mt19937 gen(42);  // Fixed seed for reproducibility
+    uniform_real_distribution<double> dis(test_range_min, test_range_max);
+    
     cout << "Generating test data for " << dim << " elements..." << endl;
-
+    
     // Store original test values for later verification
     double *test_values = new double[dim];
     
-    // Generate inputs - note: exp_nagx computes exp(-inA) where inA > 0
+    // Generate secret shared inputs (both parties generate same test values)
     for (int i = 0; i < dim; i++) {
-        double test_val = dis(gen); // positive value
-        test_values[i] = test_val;
-        // test_values[0] = 8.0 - 0.0001;
+        double test_val = dis(gen);
+        test_values[i] = test_val;  // Both parties store the same original value
         
-        if (party == sci::ALICE) {
-            double alice_share = test_val * 0.6; // Alice gets 60% of the value
-            inA[i] = double2fix(alice_share, in_f, in_bw);
+        if (party == ALICE) {
+            // ALICE gets 70% of the value as her share
+            double alice_share = test_val * 0.7;
+            inA[i] = double2fix(alice_share, scale, ell);
         } else {
-            double bob_share = test_val * 0.4; // Bob gets 40% of the value
-            inA[i] = double2fix(bob_share, in_f, in_bw);
+            // BOB gets 30% of the value as his share  
+            double bob_share = test_val * 0.3;
+            inA[i] = double2fix(bob_share, scale, ell);
         }
     }
-
-    cout << "Starting exp_nagx computation..." << endl;
     
-    // Record communication start
-    size_t comm_start = iopack->io->counter;
+    // Create FixArray for input
+    FixArray input = fpmath->fix->input(ALICE, dim, inA, true, ell, scale);
+    
+    cout << "Starting exp4 computation..." << endl;
+    
+    // Measure computation time and communication
     auto start_time = chrono::high_resolution_clock::now();
-
-    // Call the exp_nagx function
-    gp->exp_softmaxx(dim, inA, result, in_bw, in_f, 
-                 localexp_bw, localexp_f, locallut_bw, locallut_f);
-
-    auto end_time = chrono::high_resolution_clock::now();
-    size_t comm_end = iopack->io->counter;
+    size_t comm_start = iopack->get_comm();
     
+    // Call exp4 function
+    auto result_tuple = fpmath->exp4(input);
+    FixArray result_fix = get<0>(result_tuple);
+    FixArray l_short_fix = get<1>(result_tuple);
+    
+    size_t comm_end = iopack->get_comm();
+    auto end_time = chrono::high_resolution_clock::now();
+    
+    // Copy results
+    memcpy(result, result_fix.data, dim * sizeof(uint64_t));
+    
+    // Calculate timing
     auto duration = chrono::duration_cast<chrono::milliseconds>(end_time - start_time);
+    size_t comm_bytes = comm_end - comm_start;
     
     cout << "Computation completed in " << duration.count() << " ms" << endl;
-
-    // Share results and inputs for accuracy testing
+    
+    // Exchange data for error analysis
     uint64_t *result_alice = new uint64_t[dim];
     uint64_t *result_bob = new uint64_t[dim];
     uint64_t *input_alice = new uint64_t[dim];
     uint64_t *input_bob = new uint64_t[dim];
     
-    if (party == sci::ALICE) {
+    if (party == ALICE) {
         iopack->io->send_data(result, dim * sizeof(uint64_t));
         iopack->io->send_data(inA, dim * sizeof(uint64_t));
         iopack->io->recv_data(result_bob, dim * sizeof(uint64_t));
         iopack->io->recv_data(input_bob, dim * sizeof(uint64_t));
         memcpy(result_alice, result, dim * sizeof(uint64_t));
         memcpy(input_alice, inA, dim * sizeof(uint64_t));
+        printf("Communication: %zu bytes\n", comm_bytes);
     } else {
         iopack->io->recv_data(result_alice, dim * sizeof(uint64_t));
         iopack->io->recv_data(input_alice, dim * sizeof(uint64_t));
@@ -158,26 +175,27 @@ int main(int argc, char **argv) {
         memcpy(result_bob, result, dim * sizeof(uint64_t));
         memcpy(input_bob, inA, dim * sizeof(uint64_t));
     }
-
-    // Accuracy analysis (only on one party to avoid duplicate output)
-    if (1) {
+    
+    // Accuracy analysis (only on BOB to avoid duplicate output)
+    if (party == BOB) {
         cout << "\n=== Accuracy Analysis ===" << endl;
         
-        double ulp = 1.0 / (1ULL << in_f); // ULP for input precision (assuming output same as input)
+        double ulp = 1.0 / (1ULL << scale);
         double total_ulp_error = 0.0;
         double max_ulp_error = 0.0;
         double total_relative_error = 0.0;
         double max_relative_error = 0.0;
         int correct_results = 0;
+        int high_ulp_count = 0;
         
         for (int i = 0; i < dim; i++) {
-            // Reconstruct the actual result (exp_nagx output)
-            double actual_result = fix2double(result_alice[i], result_bob[i], in_bw, in_f);
+            // Reconstruct actual result from shares
+            double actual_result = fix2double(result_alice[i], result_bob[i], ell, scale);
             
-            // Reconstruct the input from Alice and Bob shares
-            double input_val = fix2double(input_alice[i], input_bob[i], in_bw, in_f);
+            // Use original test value (more accurate than reconstructing from shares)
+            double input_val = test_values[i];
             
-            // Expected result: exp(-input_val) since exp_nagx computes exp(-inA)
+            // Expected result: exp(input_val)
             double expected_result = exp(input_val);
             
             // Calculate errors
@@ -191,40 +209,46 @@ int main(int argc, char **argv) {
             if (ulp_error > max_ulp_error) max_ulp_error = ulp_error;
             if (relative_error > max_relative_error) max_relative_error = relative_error;
             
-            // Consider result correct if ULP error < 1
+            // Consider result correct if ULP error < 10.0
             if (ulp_error < 10.0) correct_results++;
             
-            // Print details for first few results
-            // if (i < 1000) {
-            //     printf("Test %d: input=%.6f, actual=%.6f, expected=%.6f, ULP_error=%.2f\n", 
-            //            i, input_val, actual_result, expected_result, ulp_error);
-            // }
+            // Count and print high ULP error cases (> threshold)
+            if (ulp_error > ulp_threshold) {
+                high_ulp_count++;
+                printf("HIGH ULP ERROR [%d]: input=%.6f, actual=%.6f, expected=%.6f, ULP_error=%.2f\n", 
+                       i, input_val, actual_result, expected_result, ulp_error);
+            }
+            
+            // Print details for verbose mode or first few results
+            if (verbose && i < 5) {
+                printf("Test %d: input=%.6f, actual=%.6f, expected=%.6f, ULP_error=%.2f\n", 
+                       i, input_val, actual_result, expected_result, ulp_error);
+            }
         }
         
         cout << "\n=== Summary Statistics ===" << endl;
         printf("Total tests: %d\n", dim);
         printf("Correct results (ULP < 10): %d (%.2f%%)\n", 
                correct_results, 100.0 * correct_results / dim);
+        printf("High ULP error cases (ULP > 500): %d (%.2f%%)\n", 
+               high_ulp_count, 100.0 * high_ulp_count / dim);
         printf("Average ULP error: %.4f\n", total_ulp_error / dim);
         printf("Maximum ULP error: %.4f\n", max_ulp_error);
         printf("Average relative error: %.6f%%\n", 100.0 * total_relative_error / dim);
         printf("Maximum relative error: %.6f%%\n", 100.0 * max_relative_error);
         
         cout << "\n=== Performance Statistics ===" << endl;
-        printf("Communication: %zu bytes\n", comm_end - comm_start);
-        printf("Communication per element: %.2f bytes\n", 
-               (double)(comm_end - comm_start) / dim);
+        printf("Communication: %zu bytes\n", comm_bytes);
+        printf("Communication per element: %.2f bytes\n", (double)comm_bytes / dim);
         printf("Computation time: %ld ms\n", duration.count());
-        printf("Throughput: %.2f exp_nagx/sec\n", 
-               1000.0 * dim / duration.count());
+        printf("Throughput: %.2f exp4/sec\n", 1000.0 * dim / duration.count());
         
-        // Additional statistics for negative exp
-        cout << "\n=== exp_nagx Specific Analysis ===" << endl;
-        printf("Input range tested: [0.1, 4.0] (positive values)\n");
-        printf("Output range: exp(-4.0) to exp(-0.1) ≈ [0.018, 0.905]\n");
-        printf("Function tested: exp(-x) where x > 0\n");
+        cout << "\n=== exp4 Function Analysis ===" << endl;
+        printf("Function tested: exp4(x) - polynomial approximation of exp(x)\n");
+        printf("Input range tested: [%.2f, %.2f]\n", test_range_min, test_range_max);
+        printf("Secret sharing: ALICE=70%%, BOB=30%% of each input value\n");
     }
-
+    
     // Cleanup
     delete[] inA;
     delete[] result;
@@ -234,13 +258,13 @@ int main(int argc, char **argv) {
     delete[] input_bob;
     delete[] test_values;
     
-    delete gp;
+    delete fpmath;
     delete aux;
     delete prod;
     delete otpack;
     delete iopack;
 
-    cout << "\nexp_nagx test completed successfully!" << endl;
+    cout << "\nexp4 test completed successfully!" << endl;
     
     return 0;
-} 
+}

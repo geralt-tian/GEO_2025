@@ -1380,11 +1380,11 @@ FixArray FixOp::div_batch_opt(const FixArray& nm, const FixArray& dn, int batch_
   printf("adjust.data[0] = %llu\n", adjust.data[0]);
 
   BoolArray msb_nm;
-  uint8_t* msb_nm_data = nullptr;
-  if (nm.signed_) {
-    msb_nm = fix->MSB(nm);
-    msb_nm_data = msb_nm.data;
-  }
+  // uint8_t* msb_nm_data = nullptr;
+  // if (nm.signed_) {
+  //   msb_nm = fix->MSB(nm);
+  //   msb_nm_data = msb_nm.data;
+  // }
   // printf("msb_nm.party: %d\n", msb_nm.party);
   // printf("msb_nm.size: %d\n", msb_nm.size);
   // printf("msb_nm.ell: %d\n", msb_nm.ell);
@@ -1439,26 +1439,26 @@ FixArray FixOp::div_batch_opt(const FixArray& nm, const FixArray& dn, int batch_
 
   // FixArray a = fix->mul(nm, w_extend, nm.ell + s_out, msb_nm_data, all_0_dm.data);//这个mul可以优化，w_extend中每一行都是同一个值
 
-  FixArray a = fix->mul_vec_mat_mul(w, nm, nm.ell + s_out, wall_0_dm.data,  msb_nm_data);
+  FixArray a = fix->mul_vec_mat_mul(w, nm, nm.ell + s_out, wall_0_dm.data,  all_0_dm.data);
 
   // FixArray a = fix->mul_vec_mat_mul(w, nm, nm.ell + s_out);
 
 
-  printf("w.size: %d\n", w.size);
-  printf("w.ell: %d\n", w.ell);
-  printf("w.s: %d\n", w.s);
-  printf("nm.size: %d\n", nm.size);
-  printf("nm.ell: %d\n", nm.ell);
-  printf("nm.s: %d\n", nm.s);
-  printf("a.size: %d\n", a.size);
-  printf("a.ell: %d\n", a.ell);
-  printf("a.s: %d\n", a.s);
-  for (int i = 0; i < 100; i++) {
-    printf("w.data[0] = %llu\n",  w.data[0]);
-    printf("w.data[1] = %llu\n",  w.data[1]);
-    printf("nm.data[%d] = %llu\n", i, nm.data[i]);
-    printf("a.data[%d] = %llu\n", i, a.data[i]);
-  }
+  // printf("w.size: %d\n", w.size);
+  // printf("w.ell: %d\n", w.ell);
+  // printf("w.s: %d\n", w.s);
+  // printf("nm.size: %d\n", nm.size);
+  // printf("nm.ell: %d\n", nm.ell);
+  // printf("nm.s: %d\n", nm.s);
+  // printf("a.size: %d\n", a.size);
+  // printf("a.ell: %d\n", a.ell);
+  // printf("a.s: %d\n", a.s);
+  // for (int i = 0; i < 100; i++) {
+  //   printf("w.data[0] = %llu\n",  w.data[0]);
+  //   printf("w.data[1] = %llu\n",  w.data[1]);
+  //   printf("nm.data[%d] = %llu\n", i, nm.data[i]);
+  //   printf("a.data[%d] = %llu\n", i, a.data[i]);
+  // }
 
   /////////////////////////////////
   // FixArray a = fix->input(this->party, nm.size, uint64_t(0), true, nm.ell + s_out , nm.s + w.s);//得初始化一个a
@@ -1479,7 +1479,7 @@ FixArray FixOp::div_batch_opt(const FixArray& nm, const FixArray& dn, int batch_
   if ((nm.ell - nm.s) >= (l_out - s_out)) {
     a = fix->reduce(a, l_out);
   } else {
-    a = fix->extend(a, l_out, msb_nm_data);
+    a = fix->extend(a, l_out, all_0_dm.data);
   }
   printf("check point 2\n");
 
@@ -1487,7 +1487,7 @@ FixArray FixOp::div_batch_opt(const FixArray& nm, const FixArray& dn, int batch_
   if (!normalized_dn) {
     // Change extend adjust here
     // a = fix->mul(a, adjust_extend, l_out + adjust_extend.s, msb_nm_data, all_0_dm.data);//这个mul可以优化，adjust_extend中每一行都是同一个值
-    a = fix->mul_vec_mat_mul(adjust,a, nm.ell + s_out,wall_0_dm.data,  msb_nm_data);
+    a = fix->mul_vec_mat_mul(adjust,a, nm.ell + s_out,wall_0_dm.data,  all_0_dm.data);
     // printf("a.size: %d\n", a.size);
     printf("a.ell: %d\n", a.ell);
     printf("a.s: %d\n", a.s);
@@ -1529,13 +1529,13 @@ FixArray FixOp::div_batch_opt(const FixArray& nm, const FixArray& dn, int batch_
       e_curr = fix->mul(e_prev, e_prev, 2*s_out + 2, all_0.data, all_0.data);
       e_curr = fix->truncate_reduce(e_curr, s_out);
       e_prev = fix->add(e_prev, 1ULL << e_prev.s);
-      a_curr = fix->mul(e_prev, a_prev, l_out + s_out, all_0.data, msb_nm_data);
+      a_curr = fix->mul(e_prev, a_prev, l_out + s_out, all_0.data, all_0_dm.data);
       a_curr = fix->truncate_reduce(a_curr, s_out);
       a_prev = a_curr;
       e_prev = e_curr;
     }
     e_prev = fix->add(e_prev, 1ULL << e_prev.s);
-    FixArray out = fix->mul(e_prev, a_prev, l_out + s_out, all_0.data, msb_nm_data);
+    FixArray out = fix->mul(e_prev, a_prev, l_out + s_out, all_0.data, all_0_dm.data);
     out = fix->truncate_reduce(out, s_out);
     return out;
   } else {

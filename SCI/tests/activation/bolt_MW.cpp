@@ -1,12 +1,12 @@
-// MW协议测试文件 - 重构版
+// MW协议测试文件 - 优化版
 // 专门测试MW (Most Significant Wrap) 协议
 // 
 // 测试流程：
-// 1. 定义真实输入值（包括用户指定的28039, 21038）
+// 1. 定义真实输入值（包括用户指定的固定值）
 // 2. 将真实输入分解为Alice和Bob的秘密分享
-// 3. 各方使用自己的share调用gp->mw()协议
+// 3. 根据参数B的值选择调用gp->mw()或gp->mwwithB()协议
 // 4. 将MPC结果与基于真实输入的明文MW结果对比
-// 5. 验证协议正确性，特别关注bw=15的情况
+// 5. 验证协议正确性，支持可配置的测试数量、位宽和参数B
 
 #include "utils/emp-tool.h"
 #include "BuildingBlocks/geometric_perspective_protocols.h"
@@ -16,6 +16,8 @@
 #include <cstdlib>
 #include <ctime>
 #include <cmath>
+#include <chrono>
+#include <algorithm>
 
 using namespace sci;
 using namespace std;
@@ -26,6 +28,11 @@ using namespace std;
 
 int party, port = 32000;
 string address = "127.0.0.1";
+int test_dim = 1048576;        // 测试数量，可通过命令行参数调整
+int test_bw = 37;        // 位宽，可通过命令行参数调整
+// uint64_t B = 1*2*(1ULL << test_bw)/4;
+uint64_t B = (1ULL << (test_bw - 1));
+bool verbose = false;    // 详细输出模式
 IOPack *iopack;
 OTPack *otpack;
 GeometricPerspectiveProtocols *gp;
@@ -52,16 +59,11 @@ uint64_t compute_MW_plain(uint64_t input, int bw) {
 
 // 测试MW协议的主函数
 void test_mw_protocol() {
-    printf("=== Testing MW Protocol with Share Inputs ===\n");
+    printf("=== Testing MW Protocol ===\n");
+    uint64_t N = 1ULL << test_bw;  
     
-    // 测试参数
-    int test_bw = 15;  // 用户指定的位宽
-    uint64_t N = 1ULL << test_bw;  // 2^15 = 32768
+    printf("Parameters: test_dim=%d, bw=%d, N=%lu, B=%lu\n", test_dim, test_bw, (unsigned long)N, (unsigned long)B);
     
-    printf("\n--- Testing with bw=%d, N=2^%d=%llu ---\n", test_bw, test_bw, N);
-    
-    // 测试数据维度
-    int test_dim = 8;
     uint64_t *input_array = new uint64_t[test_dim];
     uint64_t *output_array = new uint64_t[test_dim];
     
@@ -69,42 +71,60 @@ void test_mw_protocol() {
     srand(time(nullptr) + party);
     
     if (party == ALICE) {
-        // Alice设置自己的share值
-        input_array[0] = 28039;      // 用户指定输入1
-        input_array[1] = 21038;      // 用户指定输入2
-        input_array[2] = 0;          // 边界值
-        input_array[3] = N/4;        // 测试值
-        input_array[4] = N/2;        // 中点
-        input_array[5] = 3*N/4;      // 测试值
-        input_array[6] = N-1;        // 最大值
-        input_array[7] = 12345;      // 随机值
-        
-        printf("Alice shares: ");
+        // Alice设置shares - 使用固定值和动态生成的值
         for (int i = 0; i < test_dim; i++) {
-            printf("%llu ", input_array[i]);
+            if (i == 0) {
+                input_array[i] = 100;      // 固定测试值1
+            } else if (i == 1) {
+                input_array[i] = 1000;      // 固定测试值2
+            } else if (i == 2) {
+                input_array[i] = 0;          // 边界值
+            } else if (i == 3 && test_dim > 3) {
+                input_array[i] = N/2;        // 中点
+            } else if (i == 4 && test_dim > 4) {
+                input_array[i] = N-1;        // 最大值
+            } else {
+                input_array[i] = rand() % (N/4); // 随机值
+            }
             output_array[i] = 0;
         }
-        printf("\n");
+        
+        if (verbose) {
+            printf("Alice shares: ");
+            for (int i = 0; i < test_dim; i++) {
+                printf("%lu ", (unsigned long)input_array[i]);
+            }
+            printf("\n");
+        }
         
         // 发送Alice的shares给Bob用于计算明文期望结果
         iopack->io->send_data(input_array, test_dim * sizeof(uint64_t));
     } else {
-        // Bob设置自己的share值
-        input_array[0] = 21038;       // 对应Alice的28039
-        input_array[1] = 2000;       // 对应Alice的21038  
-        input_array[2] = 100;        // 对应Alice的0
-        input_array[3] = 500;        // 对应Alice的N/4
-        input_array[4] = 1500;       // 对应Alice的N/2
-        input_array[5] = 2500;       // 对应Alice的3*N/4
-        input_array[6] = 3000;       // 对应Alice的N-1
-        input_array[7] = 6789;       // 对应Alice的12345
-        
-        printf("Bob shares: ");
+        // Bob设置shares - 使用固定值和动态生成的值
         for (int i = 0; i < test_dim; i++) {
-            printf("%llu ", input_array[i]);
+            if (i == 0) {
+                input_array[i] = 1000;      
+            } else if (i == 1) {
+                input_array[i] = 2000;       
+            } else if (i == 2) {
+                input_array[i] = 100;        
+            } else if (i == 3 && test_dim > 3) {
+                input_array[i] = 1500;       
+            } else if (i == 4 && test_dim > 4) {
+                input_array[i] = 3000;       
+            } else {
+                input_array[i] = rand() % (N/4); // 随机值，范围较小避免溢出
+            }
             output_array[i] = 0;
         }
-        printf("\n");
+        
+        if (verbose) {
+            printf("Bob shares: ");
+            for (int i = 0; i < test_dim; i++) {
+                printf("%lu ", (unsigned long)input_array[i]);
+            }
+            printf("\n");
+        }
     }
     
     // 计算明文期望结果
@@ -117,30 +137,51 @@ void test_mw_protocol() {
         iopack->io->recv_data(alice_shares, test_dim * sizeof(uint64_t));
         
         // 计算总输入 = Alice_share + Bob_share
-        printf("Total inputs (Alice_share + Bob_share): ");
         for (int i = 0; i < test_dim; i++) {
             total_inputs[i] = alice_shares[i] + input_array[i];
-            printf("%llu ", total_inputs[i]);
-        }
-        printf("\n");
-        
-        // 计算明文期望MW结果
-        printf("Expected MW results: ");
-        for (int i = 0; i < test_dim; i++) {
             expected_results[i] = compute_MW_plain(total_inputs[i], test_bw);
-            printf("%llu ", expected_results[i]);
         }
-        printf("\n");
+        
+        if (verbose) {
+            printf("Total inputs: ");
+            for (int i = 0; i < test_dim; i++) {
+                printf("%lu ", (unsigned long)total_inputs[i]);
+            }
+            printf("\nExpected results: ");
+            for (int i = 0; i < test_dim; i++) {
+                printf("%lu ", (unsigned long)expected_results[i]);
+            }
+            printf("\n");
+        }
     }
     
-    // 记录通信开销
+    // 记录通信开销和执行时间
     size_t comm_start = iopack->io->counter;
     
+    // 开始时间测量
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
     // 调用MW协议
-    gp->mw(test_dim, input_array, output_array, test_bw, 2);
-    for (int i = 0; i < test_dim; i++) {
-        printf("input_array[%d] = %llu\n", i, input_array[i]);
-        printf("output_array[%d] = %llu\n", i, output_array[i]);
+    if (B == N/4) {
+        gp->mw(test_dim, input_array, output_array, test_bw, 2);
+    } else {
+        gp->mwwithB(test_dim, B, input_array, output_array, test_bw, 2);
+    }
+    
+    // 结束时间测量
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    
+    // 确保最小时间为1毫秒，避免除0错误
+    long long ms_count = std::max(static_cast<long long>(duration_ms.count()), 1LL);
+    long long us_count = static_cast<long long>(duration_us.count());
+    
+    if (verbose) {
+        for (int i = 0; i < test_dim; i++) {
+            printf("Party %d - input[%d]=%lu, output[%d]=%lu\n", 
+                   party, i, (unsigned long)input_array[i], i, (unsigned long)output_array[i]);
+        }
     }
     
     size_t comm_end = iopack->io->counter;
@@ -150,52 +191,43 @@ void test_mw_protocol() {
     
     if (party == ALICE) {
         iopack->io->send_data(output_array, test_dim * sizeof(uint64_t));
+        printf("MW Protocol Execution Time: %lld ms (%lld us)\n", 
+               ms_count, us_count);
+        printf("Communication: %zu bytes\n", (comm_end - comm_start));
     } else {
         iopack->io->recv_data(output_alice, test_dim * sizeof(uint64_t));
     }
     
     if (party == BOB) {
-        printf("\n=== MW Protocol Results and Verification ===\n");
+        printf("\n=== MW Protocol Results ===\n");
         int correct_count = 0;
         
         for (int i = 0; i < test_dim; i++) {
             // 恢复明文结果 (2位输出)
             uint64_t mpc_result = (output_alice[i] + output_array[i]) & 3;
-            
             bool is_correct = (mpc_result == expected_results[i]);
             if (is_correct) correct_count++;
             
-            printf("Test[%d]: Total_Input=%llu, Expected=%llu, MPC=%llu %s\n",
-                   i, total_inputs[i], expected_results[i], mpc_result,
-                   is_correct ? "✓" : "✗");
-            
-            if (i < 2) {  // 特别关注用户指定的两个输入
-                printf("  -> User specified input: %s\n", 
-                       is_correct ? "PASSED" : "FAILED");
+            if (verbose || i < 2) {  // 总是显示前两个固定输入的结果
+                printf("Test[%d]: Input=%lu, Expected=%lu, Got=%lu [%s]\n",
+                       i, (unsigned long)total_inputs[i], (unsigned long)expected_results[i], (unsigned long)mpc_result,
+                       is_correct ? "PASS" : "FAIL");
             }
         }
         
-        printf("\n=== Test Summary ===\n");
-        printf("Bit width (bw): %d\n", test_bw);
-        printf("Ring size (N): %llu\n", N);
-        printf("Total tests: %d\n", test_dim);
-        printf("Correct results: %d\n", correct_count);
-        printf("Accuracy: %.2f%%\n", (double)correct_count / test_dim * 100.0);
-        printf("Communication cost: %zu bytes\n", (comm_end - comm_start));
-        
-        // 特别报告用户指定输入的结果
-        printf("\n=== User Specified Inputs Results ===\n");
-        for (int i = 0; i < 2 && i < test_dim; i++) {
-            uint64_t mpc_result = (output_alice[i] + output_array[i]) & 3;
-            printf("Total Input %llu: Expected=%llu, Got=%llu %s\n",
-                   total_inputs[i], expected_results[i], mpc_result,
-                   (mpc_result == expected_results[i]) ? "✓" : "✗");
-        }
+        printf("\n=== Summary ===\n");
+        printf("Parameters: bw=%d, N=%lu, B=%lu, tests=%d\n", 
+               test_bw, (unsigned long)N, (unsigned long)B, test_dim);
+        printf("Results: %d/%d correct (%.1f%%)\n", 
+               correct_count, test_dim, (double)correct_count / test_dim * 100.0);
+        printf("MW Protocol Execution Time: %lld ms (%lld us)\n", 
+               ms_count, us_count);
+        printf("Communication: %zu bytes\n", (comm_end - comm_start));
         
         if (correct_count == test_dim) {
-            printf("\n🎉 All MW tests PASSED!\n");
+            printf("Status: ALL TESTS PASSED\n");
         } else {
-            printf("\n❌ Some MW tests FAILED.\n");
+            printf("Status: %d TESTS FAILED\n", test_dim - correct_count);
         }
     }
     
@@ -207,7 +239,7 @@ void test_mw_protocol() {
     delete[] output_array;
     delete[] output_alice;
     
-    printf("=== MW Test Completed ===\n\n");
+    printf("=== MW Test Completed ===\n");
 }
 
 int main(int argc, char **argv) {
@@ -216,7 +248,21 @@ int main(int argc, char **argv) {
     amap.arg("r", party, "Role of party: ALICE = 1; BOB = 2");
     amap.arg("p", port, "Port Number");
     amap.arg("ip", address, "IP Address of server (ALICE)");
+    amap.arg("n", test_dim, "Number of test cases");
+    amap.arg("bw", test_bw, "Bit width for MW protocol");
+    amap.arg("B", B, "Parameter B for MW protocol");
+    amap.arg("v", verbose, "Verbose output mode");
     amap.parse(argc, argv);
+
+    // 验证参数有效性
+    // if (test_dim <= 0 || test_dim > 10000) {
+    //     printf("Error: test_dim must be between 1 and 10000\n");
+    //     return -1;
+    // }
+    // if (test_bw <= 0 || test_bw > 32) {
+    //     printf("Error: test_bw must be between 1 and 32\n");
+    //     return -1;
+    // }
 
     // 初始化通信和协议
     iopack = new IOPack(party, port, address);
@@ -224,12 +270,12 @@ int main(int argc, char **argv) {
     gp = new GeometricPerspectiveProtocols(party, iopack, otpack);
 
     printf("Starting MW Protocol Testing...\n");
-    printf("Party: %s\n", (party == ALICE) ? "ALICE" : "BOB");
+    printf("Party: %s, Test cases: %d, Bit width: %d, B: %lu\n", 
+           (party == ALICE) ? "ALICE" : "BOB", test_dim, test_bw, (unsigned long)B);
     
     // 运行MW协议测试
     test_mw_protocol();
     
-    printf("================================\n");
     printf("MW Protocol testing completed!\n");
 
     // 清理资源
