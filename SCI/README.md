@@ -58,10 +58,10 @@ Run the tests as follows to make sure everything works as intended:
 
 `./<test> r=1 [port=port] & ./<test> r=2 [port=port]`
 
-For the end to end inference like `./BOLT-MW` in the `EzPC/` folder of our MPC Protocols, use the following command:
+For the end to end inference like `./ours-MW` in the `EzPC/` folder of our MPC Protocols, use the following command:
 
 ```bash
-./SCI/build/bin/BOLT-MW r=1 & ./SCI/build/bin/BOLT-MW r=2
+./SCI/build/bin/ours-MW r=1 & ./SCI/build/bin/ours-MW r=2
 ```
 
 # Acknowledgements

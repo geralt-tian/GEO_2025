@@ -29,7 +29,7 @@ The project is organized as follows:
 To run the unit tests in the `EZPC/` folder of our MPC Protocols, use the following command:
 
 ```bash
-./SCI/build/bin/BOLT-MW r=1 & ./SCI/build/bin/BOLT-MW r=2
+./SCI/build/bin/ours-MW r=1 & ./SCI/build/bin/ours-MW r=2
 ```
 
 **Reference Repository:**  
