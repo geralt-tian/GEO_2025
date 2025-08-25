@@ -1464,7 +1464,7 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix(const vector<FixArray
 
 //   // Get the integer part and scale back
 //   FixArray l_short = fix->truncate_reduce(x_inl, scale);
-//   FixArray l_short_raw = l_short; //l_short_raw 没有用到
+//   FixArray l_short_raw = l_short;
 //   FixArray l = fix->scale_up(l_short, ell, scale);
 
 //   // l*math.log(2)
@@ -1537,11 +1537,11 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
   printf("shifted_x_flat.s = %d\n", shifted_x_flat.s);
   if (party == sci::ALICE){
     for (int i = 0; i < N*n; i++){
-      shifted_x_flat.data[i] = (shifted_x_flat.data[i] - 1) & mask_exp_input;//shifted_x_flat<=0 ???这里想要减一来避免exp^0，但是有很多报错
+      shifted_x_flat.data[i] = (shifted_x_flat.data[i] - 1) & mask_exp_input;
     }
   }else{
     for (int i = 0; i < N*n; i++){
-      shifted_x_flat.data[i] = (shifted_x_flat.data[i]) & mask_exp_input;//shifted_x_flat<=0 ???这里想要减一来避免exp^0，但是有很多报错
+      shifted_x_flat.data[i] = (shifted_x_flat.data[i]) & mask_exp_input;
     }
   }
   // for (int i = 0; i < N*n; i++){
@@ -1576,9 +1576,7 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
   //     alice_shifted_shares[i] = (alice_shifted_shares[i] + shifted_x_flat.data[i]) & mask_exp_input;
   //     // printf("pl_shifted_shares[%d] = %lu\n", i, alice_shifted_shares[i]);
 
-  //     // 输出inf是因为指数太大导致溢出
-  //     // alice_shifted_shares[i]是定点数,需要先减去2^37来还原负数,再除以2^12(4096)转换为浮点数
-  //     // 这样计算出的指数可能非常大,导致exp计算结果超出float范围变成inf
+  
   //     int64_t alice_shifted_shares_int = alice_shifted_shares[i] -137438953472;
       
   //     double exp_input = (alice_shifted_shares_int)/4096.0;
@@ -1603,7 +1601,7 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
   // printf("output[384] = %lu\n", output[384]);
      
 
-  // 正确初始化 e_x_flat
+  
   FixArray e_x_flat(party, N*n, signed_, ell, s);
   for (int i = 0; i < N*n; i++){
     e_x_flat.data[i] = output[i];
@@ -1678,11 +1676,11 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
   if (party == sci::ALICE){
     for (int i = 0; i < N; i++){
         for (int j = 0; j < n; j++){
-            ret[i].data[j] = (ret[i].data[j] - 30) & mask_ell;
+            ret[i].data[j] = (ret[i].data[j] - 31) & mask_ell;
         }
     }
 }
-  // 清理动态分配的内存
+  
   delete[] output;
   
   return make_tuple(ret, l_short);//l_short is not used

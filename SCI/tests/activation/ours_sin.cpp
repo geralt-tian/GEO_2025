@@ -88,7 +88,7 @@ void compute_MW_plain(const uint64_t *x0, const uint64_t *x1, uint64_t *MW,
     } else if (3 * N / 2 <= sum && sum < 2 * N) {
       MW[i] = 2;
     } else {
-      MW[i] = 3; // 默认无效
+      MW[i] = 3;
     }
   }
 }
@@ -204,10 +204,9 @@ int main(int argc, char **argv) {
     // inB[i] = ((init_input + i * 2) & mask_bwL_input); // ensure inB < B
   }
   
-  // 在循环外只调用一次
   compute_MW_plain(inA, inB, MW_plain, dim, N_input);
   printf("B: %llu\n", B);
-     // 调用MW协议
+
 
   size_t comm_start_mw = iopack->io->counter;
   if (B == N_input/4) {
@@ -272,7 +271,7 @@ int main(int argc, char **argv) {
   for (int i = 0; i < 3; i++) {
     double pow_f_input = std::pow(2.0, f_input);
     double pow_f = std::pow(2.0, f_T);
-    double angle = -i * static_cast<double>(N_input) / pow_f_input; // 这里的angle单位是弧度
+    double angle = -i * static_cast<double>(N_input) / pow_f_input;
     double sin_val = std::sin(angle);
     double cos_val = std::cos(angle);
     printf("sin_val: %f\n", sin_val);
@@ -351,7 +350,7 @@ int main(int argc, char **argv) {
   // }
 
 
-  //step 4: compute sin_inA_cos_inB, cos_inA_sin_inB, cos_inA_cos_inB, sin_inA_sin_inB 目前计算的是signed mul，可优化成signed crossterm
+  //step 4: compute sin_inA_cos_inB, cos_inA_sin_inB, cos_inA_cos_inB, sin_inA_sin_inB
   uint64_t *sin_inA_cos_inB = new uint64_t[dim];
   uint64_t *cos_inA_sin_inB = new uint64_t[dim];
   uint64_t *cos_inA_cos_inB = new uint64_t[dim];
@@ -571,7 +570,7 @@ int main(int argc, char **argv) {
     //   printf("cc_min_ss_lut[%d][%d]: %llu\n", i, j, cc_min_ss_lut[j]);
       
     // }
-    // 写入：按 i 主序（每个 i 是一个连续的 dim 块）
+    
     for (int j = 0; j < dim; j++) {
       sc_add_cs_lut_buffer[i * dim + j] = sc_add_cs_lut[j];
       cc_min_ss_lut_buffer[i * dim + j] = cc_min_ss_lut[j];
@@ -682,7 +681,7 @@ int main(int argc, char **argv) {
         double ulp_sum = 0.0;
     double ulp_max = 0.0;
     for (int i = 0; i < dim; i++) {
-    double ulp = 1.0 / (1 << f_output); // 2的f_input次精度 
+    double ulp = 1.0 / (1 << f_output); 
     double error = std::abs(res_sin_plain[i] - ideal_exp_plain[i]);
     ulp_sum += error / ulp;
     ulp_max = std::max(ulp_max, error / ulp);

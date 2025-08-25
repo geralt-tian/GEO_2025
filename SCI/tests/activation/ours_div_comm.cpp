@@ -93,7 +93,7 @@ void compute_MW_plain(const uint64_t *x0, const uint64_t *x1, uint64_t *MW,
     } else if (3 * N / 2 <= sum && sum < 2 * N) {
       MW[i] = 2;
     } else {
-      MW[i] = 3; // 默认无效
+      MW[i] = 3; 
     }
   }
 }
@@ -230,7 +230,7 @@ int main(int argc, char **argv) {
   uint64_t** sc_cs_lut_spec = new uint64_t*[dim];
 
   for(int i = 0; i < dim; i++) {
-    sc_cs_lut_spec[i] = new uint64_t[4]; // 假设每行有4个元素，根据MW的输出
+    sc_cs_lut_spec[i] = new uint64_t[4];
     
   }
   

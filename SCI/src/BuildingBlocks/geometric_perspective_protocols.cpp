@@ -303,7 +303,7 @@ uint64_t *x0_star = new uint64_t[dim];
 uint64_t *M_result = new uint64_t[dim];
   if (party == sci::ALICE) {
     for (int i = 0; i < dim; i++) {
-      if (input[i] > B) { //这个=貌似不该取
+      if (input[i] > B) { 
     delta[i] = 1;
       } else {
     delta[i] = 0;
@@ -1021,7 +1021,7 @@ void GeometricPerspectiveProtocols::exp(int32_t dim, uint64_t *inA,
         double pow_f_input = std::pow(2.0, in_f);
         double pow_f = std::pow(2.0, locallut_f);
     double exp_val = std::exp(-i * static_cast<double>(N_input) /
-                              pow_f_input); // 可以直接在这里乘exp(-4)
+                              pow_f_input); 
     MW_lut[i] =
         static_cast<uint64_t>(std::round(exp_val * pow(2, locallut_f))) &
         mask_locallut_bw;
@@ -1045,14 +1045,14 @@ void GeometricPerspectiveProtocols::exp(int32_t dim, uint64_t *inA,
         delete[] recv_MW;
       }
 
-    ///////////////////////计算exp_inA///////////////////////
+
     ring_exp(inA, exp_inA, dim, localexp_f, localexp_bw, in_f);
     uint64_t *zero = new uint64_t[dim];
     for (int i = 0; i < dim; i++) {
         zero[i] = 0;
     }
 
-    ///////////////////////计算cross term///////////////////////
+
     if (party == sci::ALICE) {
     cross_term(dim, exp_inA, zero, outB, localexp_bw, localexp_bw,
                localexp_bw + localexp_bw);
@@ -1061,7 +1061,7 @@ void GeometricPerspectiveProtocols::exp(int32_t dim, uint64_t *inA,
                localexp_bw + localexp_bw);
       }
     
-      ///////////////////////计算密文*明文///////////////////////
+
       uint8_t *msb_0 = new uint8_t[dim];
       for (int i = 0; i < dim; i++) {
         msb_0[i] = 0;
@@ -1069,8 +1069,7 @@ void GeometricPerspectiveProtocols::exp(int32_t dim, uint64_t *inA,
     
       uint8_t *wrap_outB = new uint8_t[dim];
     
-  ///////////////////////////////wrap_outB
-  ///两边都为1时赋值为0/////////////////////////////
+
   this->aux->MSB_to_Wrap(outB, msb_0, wrap_outB, dim, 2 * localexp_bw);
       uint8_t *wrap_outB_alice_send = new uint8_t[dim];
       uint8_t *wrap_outB_bob_recv = new uint8_t[dim];
@@ -1105,13 +1104,13 @@ void GeometricPerspectiveProtocols::exp(int32_t dim, uint64_t *inA,
       if (party != sci::ALICE) {
         for (int i = 0; i < dim; ++i) {
           for (uint8_t j = 0; j < 4; ++j) {
-            // 先计算 MW_lut[j] * outB[i]
+
             __uint128_t prod = (__uint128_t)MW_lut[j] * (__uint128_t)outB[i];
-            // 再减去 MW_lut[j] 和 outB[i]
+
         __int128_t diff = (__int128_t)prod - wrap_outB[i] *
                                                  (__int128_t)MW_lut[j] *
                                                  (1ULL << (2 * localexp_bw));
-            // 降低精度（右移）
+
             uint64_t shift = locallut_f + localexp_f * 2 - out_f; 
         uint64_t res =
             (uint64_t)(((diff + (__int128_t)(1ULL << (shift - 1))) >> shift) &
@@ -1135,9 +1134,9 @@ void GeometricPerspectiveProtocols::exp(int32_t dim, uint64_t *inA,
         __int128_t diff = (__int128_t)prod - wrap_outB[i] *
                                                  (__int128_t)MW_lut[j] *
                                                  (1ULL << (2 * localexp_bw));
-            // 降低精度（右移）
+
         uint64_t shift = locallut_f + localexp_f * 2 -
-                         out_f; // 这里假设fc = f*2，和原代码一致
+                         out_f; 
         uint64_t res =
             (uint64_t)(((diff + (__int128_t)(1ULL << (shift - 1))) >> shift) &
                        mask_res_exp);
@@ -1145,7 +1144,7 @@ void GeometricPerspectiveProtocols::exp(int32_t dim, uint64_t *inA,
             (res + random_numberalice + buffer[i * 4 + j]) & mask_res_exp;
           }
         }
-      ///////////////////////计算密文*明文///////////////////////
+
       this->aux->lookup_table<uint64_t>(spec, nullptr, nullptr, dim, 2,
                                       2 * localexp_bw - 2 * localexp_f + 2 +
                                           out_f);
@@ -1161,11 +1160,11 @@ void GeometricPerspectiveProtocols::exp(int32_t dim, uint64_t *inA,
         if (party != sci::ALICE) {
             for (int i = 0; i < dim; i++) {
                 result[i] =
-                  (y[i] - random_numberbob) & mask_result; //这里的位宽到底选多少？
+                  (y[i] - random_numberbob) & mask_result; 
             }
           } else {
             for (int i = 0; i < dim; i++) {
-      result[i] = -random_numberalice & mask_result; //这里的位宽到底选多少？
+      result[i] = -random_numberalice & mask_result; 
             }
           } 
 
@@ -1196,21 +1195,19 @@ void GeometricPerspectiveProtocols::exp_nag4(
   uint64_t mask_exp_bw = (1ULL << (2 * localexp_bw)) - 1;
    uint64_t *outB = new uint64_t[dim];
 
-   ///////////////////////计算MW_lut///////////////////////
+
    for (int i = 0; i < 3; i++) {
        double pow_f_input = std::pow(2.0, in_f);
        double pow_f = std::pow(2.0, locallut_f);
     double exp_val = std::exp(-i * static_cast<double>(N_input) / pow_f_input) *
-                     std::exp(-4); // 可以直接在这里乘exp(-4)
-    // double exp_val = std::exp(-i * static_cast<double>(N_input) / pow_f_input) *
-    //                  std::exp(-4); // 可以直接在这里乘exp(-4)
+                     std::exp(-4); 
+
     MW_lut[i] =
         static_cast<uint64_t>(std::round(exp_val * pow(2, locallut_f))) &
         mask_locallut_bw;
      }
      MW_lut[3] = 100;
 
-     ///////////////////////计算MW///////////////////////
 
     size_t comm_start = iopack->io->counter;
 
@@ -1234,14 +1231,14 @@ void GeometricPerspectiveProtocols::exp_nag4(
        delete[] recv_MW;
      }
 
-   ///////////////////////计算exp_inA///////////////////////
+
    ring_exp(inA, exp_inA, dim, localexp_f, localexp_bw, in_f);
    uint64_t *zero = new uint64_t[dim];
    for (int i = 0; i < dim; i++) {
        zero[i] = 0;
    }
 
-   ///////////////////////计算cross term///////////////////////
+
    if (party == sci::ALICE) {
     cross_term(dim, exp_inA, zero, outB, localexp_bw, localexp_bw,
                localexp_bw + localexp_bw);
@@ -1254,7 +1251,7 @@ void GeometricPerspectiveProtocols::exp_nag4(
     //  printf("MW_lut[1] = %llu\n", MW_lut[1]);
     //  printf("MW_lut[2] = %llu\n", MW_lut[2]);
    
-     ///////////////////////计算密文*明文///////////////////////
+
      uint8_t *msb_0 = new uint8_t[dim];
      for (int i = 0; i < dim; i++) {
        msb_0[i] = 0;
@@ -1262,8 +1259,7 @@ void GeometricPerspectiveProtocols::exp_nag4(
    
      uint8_t *wrap_outB = new uint8_t[dim];
    
-  ///////////////////////////////wrap_outB
-  ///两边都为1时赋值为0/////////////////////////////
+
   this->aux->MSB_to_Wrap(outB, msb_0, wrap_outB, dim, 2 * localexp_bw);
      uint8_t *wrap_outB_alice_send = new uint8_t[dim];
      uint8_t *wrap_outB_bob_recv = new uint8_t[dim];
@@ -1298,13 +1294,13 @@ void GeometricPerspectiveProtocols::exp_nag4(
      if (party != sci::ALICE) {
        for (int i = 0; i < dim; ++i) {
          for (uint8_t j = 0; j < 4; ++j) {
-           // 先计算 MW_lut[j] * outB[i]
+
            __uint128_t prod = (__uint128_t)MW_lut[j] * (__uint128_t)outB[i];
-           // 再减去 MW_lut[j] 和 outB[i]
+
         __int128_t diff = (__int128_t)prod - wrap_outB[i] *
                                                  (__int128_t)MW_lut[j] *
                                                  (1ULL << (2 * localexp_bw));
-           // 降低精度（右移）
+
            uint64_t shift = locallut_f + localexp_f * 2 - out_f; 
         uint64_t res =
             (uint64_t)(((diff + (__int128_t)(1ULL << (shift - 1))) >> shift) &
@@ -1328,9 +1324,9 @@ void GeometricPerspectiveProtocols::exp_nag4(
         __int128_t diff = (__int128_t)prod - wrap_outB[i] *
                                                  (__int128_t)MW_lut[j] *
                                                  (1ULL << (2 * localexp_bw));
-           // 降低精度（右移）
+
         uint64_t shift = locallut_f + localexp_f * 2 -
-                         out_f; // 这里假设fc = f*2，和原代码一致
+                         out_f; 
         uint64_t res =
             (uint64_t)(((diff + (__int128_t)(1ULL << (shift - 1))) >> shift) &
                        mask_res_exp);
@@ -1338,7 +1334,7 @@ void GeometricPerspectiveProtocols::exp_nag4(
             (res + random_numberalice + buffer[i * 4 + j]) & mask_res_exp;
          }
        }
-     ///////////////////////计算密文*明文 end///////////////////////
+
      this->aux->lookup_table<uint64_t>(spec, nullptr, nullptr, dim, 2,
                                       2 * localexp_bw - 2 * localexp_f + 2 +
                                           out_f);
@@ -1355,11 +1351,11 @@ void GeometricPerspectiveProtocols::exp_nag4(
        if (party != sci::ALICE) {
            for (int i = 0; i < dim; i++) {
                result[i] =
-                 (y[i] - random_numberbob) & mask_result; //这里的位宽到底选多少？
+                 (y[i] - random_numberbob) & mask_result; 
            }
          } else {
            for (int i = 0; i < dim; i++) {
-      result[i] = -random_numberalice & mask_result; //这里的位宽到底选多少？
+      result[i] = -random_numberalice & mask_result; 
            }
          } 
 
@@ -1376,7 +1372,7 @@ void GeometricPerspectiveProtocols::exp_nag4(
          delete[] y;
 }
 
-void GeometricPerspectiveProtocols::exp_softmaxx( //softmax中输入的x本身就是负数
+void GeometricPerspectiveProtocols::exp_softmaxx( 
   int32_t dim, uint64_t *inA, uint64_t *result, int32_t in_bw, int32_t in_f,
   int32_t localexp_bw, int32_t localexp_f, int32_t locallut_bw,
   int32_t locallut_f) // compute exp( inA), where inA >0
@@ -1390,7 +1386,6 @@ void GeometricPerspectiveProtocols::exp_softmaxx( //softmax中输入的x本身�
       uint64_t *exp_result = new uint64_t[dim];
       uint64_t *MW = new uint64_t[dim];
 
-      ///////////////////////计算drelu_input///////////////////////
       if (party == sci::ALICE) {
       for (int i = 0; i < dim; i++) {
     drelu_input[i] = (inA[i] + 4 * pow_f_input) & mask_in_bw;
@@ -1411,7 +1406,6 @@ if (party == sci::ALICE) {
         }
         }
 
-        ///////////// 
         if (party == sci::ALICE) {
         for (int i = 0; i < dim; i++) {
     inA_expinput[i] = (inA[i] + 2 * pow_f_input) & mask_in_fplus3;
@@ -1422,7 +1416,6 @@ if (party == sci::ALICE) {
         }
       }
 
-      ///////////////计算exp( - inA) * exp(-4)///////////////////////
       size_t comm_start_exp = iopack->get_comm();
 
       uint64_t *MW_input = new uint64_t[dim];
@@ -1439,7 +1432,7 @@ if (party == sci::ALICE) {
        uint64_t MW_B = N_input / 2;
       // mw(dim, MW_input, MW, in_bw, 2);
       // mwwithB(dim, MW_B, inA_expinput, MW, in_bw, 2);
-      // mwwithB(dim, MW_B, MW_input, MW, in_f + 3, 2);//现在是使用compare在小环上进行计算
+      // mwwithB(dim, MW_B, MW_input, MW, in_f + 3, 2);
       mw_conversion(dim, MW_input, MW, in_bw, in_f + 3, 2);
 //         printf("MW[384] = %llu\n", MW[384]);
 //       printf("inA[384] = %llu\n", inA[384]);
@@ -1483,7 +1476,7 @@ void GeometricPerspectiveProtocols::exp_nagx(
         uint64_t *exp_result = new uint64_t[dim];
         uint64_t *MW = new uint64_t[dim];
 
-        ///////////////////////计算drelu_input///////////////////////
+
         if (party == sci::ALICE) {
         for (int i = 0; i < dim; i++) {
       drelu_input[i] = (-inA[i] + 4 * pow_f_input) & mask_in_bw;
@@ -1502,7 +1495,7 @@ void GeometricPerspectiveProtocols::exp_nagx(
           }
           }
 
-          ///////////// 
+
           if (party == sci::ALICE) {
           for (int i = 0; i < dim; i++) {
       inA_expinput[i] = (-inA[i] + 2 * pow_f_input) & mask_in_fplus3;
@@ -1513,7 +1506,7 @@ void GeometricPerspectiveProtocols::exp_nagx(
           }
         }
 
-        ///////////////计算exp( - inA) * exp(-4)///////////////////////
+
         size_t comm_start_exp = iopack->get_comm();
 
         uint64_t *MW_input = new uint64_t[dim];
@@ -1554,21 +1547,16 @@ void GeometricPerspectiveProtocols::vector_bit_mul(int32_t dim, uint64_t *inA,
   uint64_t mask_A = (1ULL << bwA) - 1;
   // uint64_t mask_C = (1ULL << bwC) - 1;
 
-  // 计算紧密打包后的总block数量 (在所有parties中都需要)
   int32_t values_per_block = 128 / bwA;
   int32_t total_blocks = (dim + values_per_block - 1) / values_per_block;
 
-  // Alice端：生成数据和密钥
   sci::block128 *encoded_blocks = nullptr;
   sci::block128 *encoded_blocks_f = nullptr;
 
-  // 密钥只由Alice生成，Bob不知道
-  // Bob永远不会直接访问这些密钥，只能通过OT获得其中一个
   unsigned char key_bytes[16];
   unsigned char key_bytes_f[16];
 
   if (party == sci::ALICE) {
-    // 只有Alice生成密钥
     unsigned char alice_key_0[16] = {0, 9, 0, 0, 0, 0, 0, 0,
                                      0, 0, 0, 0, 0, 0, 9, 9};
     unsigned char alice_key_1[16] = {1, 1, 1, 'a', 0, 0, 1, 0,
@@ -1579,13 +1567,11 @@ void GeometricPerspectiveProtocols::vector_bit_mul(int32_t dim, uint64_t *inA,
         uint64_t *A_random = new uint64_t[dim];
         uint64_t *random_number = new uint64_t[dim];
 
-    // 设置固定种子确保每次运行都生成相同的随机数序列
     srand(1);
         for (int i = 0; i < dim; i++) {
             random_number[i] = (rand() % (mask_A + 1));
       outC[i] = (-random_number[i]) & mask_A;
         }
-        //将inA和random_number相加
         for (int i = 0; i < dim; i++) {
             A_random[i] = (inA[i] + random_number[i]) & mask_A;
         }
@@ -1594,16 +1580,13 @@ void GeometricPerspectiveProtocols::vector_bit_mul(int32_t dim, uint64_t *inA,
       printf("A_random[%d]: %llu\n", i, A_random[i]);
     }
 
-    // AES key generation
     sci::AESNI_KEY encrypt_key, encrypt_key_f;
     sci::AESNI_set_encrypt_key(&encrypt_key, key_bytes, 16);
     sci::AESNI_set_encrypt_key(&encrypt_key_f, key_bytes_f, 16);
 
-    // 编码和加密
     encoded_blocks = encode_A_random_to_blocks(A_random, dim, bwA);
     encoded_blocks_f = encode_A_random_to_blocks(random_number, dim, bwA);
 
-    // 打印调试信息
     uint64_t block_data[2];
     _mm_storeu_si128((__m128i *)block_data, encoded_blocks[0]);
     printf("encoded_blocks[0]: 0x%016llx%016llx (contains %d values)\n",
@@ -1620,7 +1603,6 @@ void GeometricPerspectiveProtocols::vector_bit_mul(int32_t dim, uint64_t *inA,
     delete[] random_number;
   }
 
-  // Alice发送加密数据，Bob接收
   sci::block128 *received_encrypt_blocks = new sci::block128[total_blocks];
   sci::block128 *received_encrypt_blocks_f = new sci::block128[total_blocks];
 
@@ -1635,27 +1617,23 @@ void GeometricPerspectiveProtocols::vector_bit_mul(int32_t dim, uint64_t *inA,
                           total_blocks * sizeof(sci::block128));
   }
 
-  // OT传输密钥 - 使用多组OT数组提高效率
-  const int num_ots = 8; // 可以根据需要调整OT数量
+  const int num_ots = 8; 
   sci::block128 key_block_0, key_block_1;
   sci::block128 received_key_block[num_ots];
   bool ot_choice_bool[num_ots];
 
   if (party == sci::ALICE) {
-    // Alice: 将16字节密钥转换为block128
     key_block_0 = _mm_loadu_si128((__m128i *)key_bytes_f);
     key_block_1 = _mm_loadu_si128((__m128i *)key_bytes);
 
-    // 准备多组OT数据
     sci::block128 ot_data0[num_ots];
     sci::block128 ot_data1[num_ots];
 
     for (int i = 0; i < num_ots; i++) {
-      ot_data0[i] = key_block_0; // 选择0的密钥
-      ot_data1[i] = key_block_1; // 选择1的密钥
+      ot_data0[i] = key_block_0; 
+      ot_data1[i] = key_block_1; 
     }
 
-    // 执行多组OT
     otpack->iknp_straight->send(ot_data0, ot_data1, num_ots);
     printf("Alice sent %d OTs with 128-bit keys\n", num_ots);
     for (int i = 0; i < num_ots; i++) {
@@ -1668,12 +1646,10 @@ void GeometricPerspectiveProtocols::vector_bit_mul(int32_t dim, uint64_t *inA,
              data1_parts[0]);
     }
   } else {
-    // Bob: 准备多组选择位
     for (int i = 0; i < num_ots; i++) {
-      ot_choice_bool[i] = (ot_choice == 1); // 所有OT使用相同选择位
+      ot_choice_bool[i] = (ot_choice == 1); 
     }
 
-    // 接收多组OT结果
     otpack->iknp_straight->recv(received_key_block, ot_choice_bool, num_ots);
     printf("Bob received %d OTs, using first result\n", num_ots);
     for (int i = 0; i < num_ots; i++) {
@@ -1684,9 +1660,7 @@ void GeometricPerspectiveProtocols::vector_bit_mul(int32_t dim, uint64_t *inA,
     }
   }
 
-  // 只有Bob进行解密
   if (party == sci::BOB) {
-    // 将接收到的block128密钥转换为AES可用格式
     unsigned char received_key[16];
     _mm_storeu_si128((__m128i *)received_key, received_key_block[0]);
 
@@ -1698,7 +1672,6 @@ void GeometricPerspectiveProtocols::vector_bit_mul(int32_t dim, uint64_t *inA,
                                   &received_decrypt_key);
       uint64_t *decoded_data =
           decode_blocks_to_A_random(received_encrypt_blocks, dim, bwA);
-      // decoded_data 现在包含 A_random = inA + random_number
       memcpy(outC, decoded_data, dim * sizeof(uint64_t));
       delete[] decoded_data;
     } else if (ot_choice == 0) {
@@ -1706,7 +1679,6 @@ void GeometricPerspectiveProtocols::vector_bit_mul(int32_t dim, uint64_t *inA,
                                   &received_decrypt_key);
       uint64_t *decoded_data =
           decode_blocks_to_A_random(received_encrypt_blocks_f, dim, bwA);
-      // decoded_data 现在包含 random_number
       memcpy(outC, decoded_data, dim * sizeof(uint64_t));
       delete[] decoded_data;
     }
@@ -1716,7 +1688,6 @@ void GeometricPerspectiveProtocols::vector_bit_mul(int32_t dim, uint64_t *inA,
     // printf("outC[0]: %llu \n",outC[0]);
   }
 
-  // 清理内存
   if (party == sci::ALICE) {
     delete[] encoded_blocks;
     delete[] encoded_blocks_f;
@@ -1725,7 +1696,6 @@ void GeometricPerspectiveProtocols::vector_bit_mul(int32_t dim, uint64_t *inA,
   delete[] received_encrypt_blocks_f;
 }
 
-// 🔥 新增：将m*n矩阵按行编码为m*total_blocks_per_row个block128
 sci::block128 *GeometricPerspectiveProtocols::encode_matrix_to_blocks(
     const uint64_t *matrix, int32_t m, int32_t n, int32_t bwA) {
 
@@ -1733,45 +1703,35 @@ sci::block128 *GeometricPerspectiveProtocols::encode_matrix_to_blocks(
   int32_t total_blocks_per_row = (n + values_per_block - 1) / values_per_block;
   int32_t total_blocks = m * total_blocks_per_row;
         
-        // 分配block128数组
   sci::block128 *block_array = new sci::block128[total_blocks];
 
-  // 逐行处理矩阵
   for (int32_t row = 0; row < m; row++) {
-    // 处理当前行的每个block
     for (int32_t block_idx = 0; block_idx < total_blocks_per_row; block_idx++) {
-      // 初始化当前block为0
       uint64_t block_data_low = 0;
       uint64_t block_data_high = 0;
 
-      // 在当前block中打包多个值
       for (int32_t i = 0; i < values_per_block; i++) {
         int32_t col = block_idx * values_per_block + i;
 
         if (col < n) {
-          uint64_t value = matrix[row * n + col]; // 矩阵元素 matrix[row][col]
+          uint64_t value = matrix[row * n + col]; 
           int32_t bit_offset = i * bwA;
 
           if (bit_offset < 64) {
-            // 值放在低64位
             if (bit_offset + bwA <= 64) {
-              // 完全在低64位内
               block_data_low |= (value << bit_offset);
             } else {
-              // 跨越低64位和高64位
               int32_t bits_in_low = 64 - bit_offset;
               int32_t bits_in_high = bwA - bits_in_low;
               block_data_low |= (value << bit_offset);
               block_data_high |= (value >> bits_in_low);
             }
           } else {
-            // 值完全在高64位
             block_data_high |= (value << (bit_offset - 64));
           }
         }
       }
 
-      // 创建block128并存储到对应位置
       int32_t block_global_idx = row * total_blocks_per_row + block_idx;
       block_array[block_global_idx] =
           sci::makeBlock128(block_data_high, block_data_low);
@@ -1781,30 +1741,23 @@ sci::block128 *GeometricPerspectiveProtocols::encode_matrix_to_blocks(
   return block_array;
 }
 
-// 🔥 新增：将m*total_blocks_per_row个block128解码回m*n矩阵
 uint64_t *GeometricPerspectiveProtocols::decode_blocks_to_matrix(
     const sci::block128 *block_array, int32_t m, int32_t n, int32_t bwA) {
 
   int32_t values_per_block = 128 / bwA;
   int32_t total_blocks_per_row = (n + values_per_block - 1) / values_per_block;
 
-  // 分配矩阵数组
   uint64_t *matrix = new uint64_t[m * n];
 
-  // 逐行处理
   for (int32_t row = 0; row < m; row++) {
-    // 处理当前行的每个block
     for (int32_t block_idx = 0; block_idx < total_blocks_per_row; block_idx++) {
-      // 获取当前block的全局索引
       int32_t block_global_idx = row * total_blocks_per_row + block_idx;
 
-      // 提取当前block的数据
       uint64_t block_data[2];
       _mm_storeu_si128((__m128i *)block_data, block_array[block_global_idx]);
       uint64_t block_data_low = block_data[0];
       uint64_t block_data_high = block_data[1];
 
-      // 从当前block中提取多个值
       for (int32_t i = 0; i < values_per_block; i++) {
         int32_t col = block_idx * values_per_block + i;
 
@@ -1813,14 +1766,11 @@ uint64_t *GeometricPerspectiveProtocols::decode_blocks_to_matrix(
           uint64_t value = 0;
 
           if (bit_offset < 64) {
-            // 值从低64位开始
             if (bit_offset + bwA <= 64) {
-              // 完全在低64位内
               uint64_t mask =
                   (bwA == 64) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << bwA) - 1);
               value = (block_data_low >> bit_offset) & mask;
                         } else {
-              // 跨越低64位和高64位
               int32_t bits_in_low = 64 - bit_offset;
               int32_t bits_in_high = bwA - bits_in_low;
               uint64_t low_part = (block_data_low >> bit_offset);
@@ -1831,13 +1781,12 @@ uint64_t *GeometricPerspectiveProtocols::decode_blocks_to_matrix(
               value = low_part | high_part;
                         }
                     } else {
-            // 值完全在高64位
             uint64_t mask =
                 (bwA == 64) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << bwA) - 1);
             value = (block_data_high >> (bit_offset - 64)) & mask;
           }
 
-          matrix[row * n + col] = value; // 存储到 matrix[row][col]
+          matrix[row * n + col] = value; 
         }
       }
     }
@@ -1846,25 +1795,19 @@ uint64_t *GeometricPerspectiveProtocols::decode_blocks_to_matrix(
   return matrix;
 }
 
-// 🔥 新增：将A_random数组转换为block128数组（选项1：紧密打包多个值）
 sci::block128 *GeometricPerspectiveProtocols::encode_A_random_to_blocks(
     const uint64_t *A_random, int32_t dim, int32_t bwA) {
 
-  // 计算每个block128能放多少个值
-  int32_t values_per_block = 128 / bwA; // 整数除法
+  int32_t values_per_block = 128 / bwA; 
   int32_t total_blocks =
-      (dim + values_per_block - 1) / values_per_block; // 向上取整
+      (dim + values_per_block - 1) / values_per_block; 
 
-  // 分配block128数组
   sci::block128 *block_array = new sci::block128[total_blocks];
 
-  // 处理每个block
   for (int32_t block_idx = 0; block_idx < total_blocks; block_idx++) {
-    // 初始化当前block为0
     uint64_t block_data_low = 0;
     uint64_t block_data_high = 0;
 
-    // 在当前block中打包多个值
     for (int32_t i = 0; i < values_per_block; i++) {
       int32_t value_idx = block_idx * values_per_block + i;
 
@@ -1873,52 +1816,41 @@ sci::block128 *GeometricPerspectiveProtocols::encode_A_random_to_blocks(
         int32_t bit_offset = i * bwA;
 
         if (bit_offset < 64) {
-          // 值放在低64位
           if (bit_offset + bwA <= 64) {
-            // 完全在低64位内
             block_data_low |= (value << bit_offset);
           } else {
-            // 跨越低64位和高64位
             int32_t bits_in_low = 64 - bit_offset;
             int32_t bits_in_high = bwA - bits_in_low;
             block_data_low |= (value << bit_offset);
             block_data_high |= (value >> bits_in_low);
           }
         } else {
-          // 值完全在高64位
           block_data_high |= (value << (bit_offset - 64));
         }
       }
     }
 
-    // 创建block128
     block_array[block_idx] = sci::makeBlock128(block_data_high, block_data_low);
   }
         
         return block_array;
     }
     
-// 🔥 新增：从block128数组解码回A_random数组（选项1：紧密打包多个值）
 uint64_t *GeometricPerspectiveProtocols::decode_blocks_to_A_random(
     const sci::block128 *block_array, int32_t dim, int32_t bwA) {
 
-  // 计算每个block128能放多少个值
-  int32_t values_per_block = 128 / bwA; // 整数除法
+  int32_t values_per_block = 128 / bwA; 
   int32_t total_blocks =
-      (dim + values_per_block - 1) / values_per_block; // 向上取整
+      (dim + values_per_block - 1) / values_per_block; 
         
-        // 分配A_random数组
   uint64_t *A_random = new uint64_t[dim];
 
-  // 从每个block中提取多个值
   for (int32_t block_idx = 0; block_idx < total_blocks; block_idx++) {
-    // 提取当前block的数据
     uint64_t block_data[2];
     _mm_storeu_si128((__m128i *)block_data, block_array[block_idx]);
     uint64_t block_data_low = block_data[0];
     uint64_t block_data_high = block_data[1];
 
-    // 从当前block中提取多个值
     for (int32_t i = 0; i < values_per_block; i++) {
       int32_t value_idx = block_idx * values_per_block + i;
 
@@ -1927,14 +1859,11 @@ uint64_t *GeometricPerspectiveProtocols::decode_blocks_to_A_random(
         uint64_t value = 0;
 
         if (bit_offset < 64) {
-          // 值从低64位开始
           if (bit_offset + bwA <= 64) {
-            // 完全在低64位内
             uint64_t mask =
                 (bwA == 64) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << bwA) - 1);
             value = (block_data_low >> bit_offset) & mask;
           } else {
-            // 跨越低64位和高64位
             int32_t bits_in_low = 64 - bit_offset;
             int32_t bits_in_high = bwA - bits_in_low;
             uint64_t low_part = (block_data_low >> bit_offset);
@@ -1945,7 +1874,6 @@ uint64_t *GeometricPerspectiveProtocols::decode_blocks_to_A_random(
             value = low_part | high_part;
           }
         } else {
-          // 值完全在高64位
           uint64_t mask =
               (bwA == 64) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << bwA) - 1);
           value = (block_data_high >> (bit_offset - 64)) & mask;
@@ -1959,16 +1887,13 @@ uint64_t *GeometricPerspectiveProtocols::decode_blocks_to_A_random(
   return A_random;
 }
 
-// 矩阵是m*n大小，vector是m长。矩阵的i行都需要与vector中的i项做crossterm，但是为了降低轮数，mn矩阵和m*1的vector要一起做crossterm。
-// crossterm中inA和inB不是share值，但outC是share值（输出类似cot）。
 void GeometricPerspectiveProtocols::matrix_vector_crossterm(
     int32_t m, int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
     int32_t bwA, int32_t bwB) {
   int32_t bwC = bwA + bwB;
   uint64_t maskA = (1ULL << bwA) - 1;
-  uint64_t maskC = (1ULL << bwC) - 1; // 修复：使用正确的输出掩码
+  uint64_t maskC = (1ULL << bwC) - 1; 
 
-  // 修复：将变量定义移到正确的作用域，避免重复分配
   uint64_t *random = nullptr;
   uint64_t *inA_random = nullptr;
   sci::block128 *random_blocks = nullptr;
@@ -1978,7 +1903,6 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm(
   unsigned char(*key_bytes_random)[16] = nullptr;
   unsigned char(*key_bytes_inA_random)[16] = nullptr;
 
-  // 初始化输出数组
   for (int i = 0; i < m * n; i++) {
     outC[i] = 0;
   }
@@ -1988,37 +1912,27 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm(
     uint64_t target_mask =
         (target_bw >= 64) ? -1ULL : ((1ULL << target_bw) - 1);
 
-    // 修复：每轮根据 target_bw 重新计算 block 参数
-    int32_t values_per_block = 128 / target_bw; // 每个block128可以装多少个值
+    int32_t values_per_block = 128 / target_bw; 
     int32_t total_blocks_per_row =
-        (n + values_per_block - 1) / values_per_block; // 每行需要多少个block128
-    int32_t total_blocks = m * total_blocks_per_row; // 总共需要的block128数量
-
-    // step 0 alice每轮生成新的随机数
-    // random。再将随机数与inA相加得到inA_random。
+        (n + values_per_block - 1) / values_per_block; 
+    int32_t total_blocks = m * total_blocks_per_row; 
 
     if (party == sci::ALICE) {
-      // 修复：Alice只在第一轮初始化密钥和内存
       if (bit_inB == 0) {
         random = new uint64_t[m * n];
         inA_random = new uint64_t[m * n];
 
-        // step 2 生成m组aes加密密钥对，每行一对
         key_random_array = new sci::AESNI_KEY[m];
         key_inA_random_array = new sci::AESNI_KEY[m];
         key_bytes_random = new unsigned char[m][16];
         key_bytes_inA_random = new unsigned char[m][16];
 
-        // 使用PRG生成真正的随机密钥
         sci::PRG128 prg;
 
-        // 为每一行生成不同的密钥对
         for (int row = 0; row < m; row++) {
-          // 生成16字节的随机密钥
           prg.random_data(key_bytes_random[row], 16);
           prg.random_data(key_bytes_inA_random[row], 16);
 
-          // 设置AES密钥
           sci::AESNI_set_encrypt_key(&key_random_array[row],
                                      key_bytes_random[row], 16);
           sci::AESNI_set_encrypt_key(&key_inA_random_array[row],
@@ -2026,41 +1940,30 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm(
         }
       }
 
-      // 修复：每轮生成新的随机数（使用正确的位宽）
       srand(1234 + bit_inB * 100 +
-            party * 10); // 使用固定种子+轮数+party保证可重现
+            party * 10); 
       for (int i = 0; i < m * n; i++) {
-        // 修复：使用 target_bw 位宽生成随机数
         random[i] = (rand() % (target_mask + 1));
 
-        // 修复：先将 inA[i] 从 bwA 位符号扩展到 target_bw 位
         uint64_t extended_inA = inA[i] & maskA;
-        // 修复：在 target_bw 位环中计算 inA_random
         inA_random[i] = (extended_inA + random[i]) & target_mask;
       }
 
-      // step 1 将random 和inA_random encode成block128格式
-      //  修复：每轮都重新释放和分配blocks
+
       if (bit_inB > 0) {
         delete[] random_blocks;
         delete[] inA_random_blocks;
       }
-      // 修复：使用 target_bw 位宽进行编码
       random_blocks = encode_matrix_to_blocks(random, m, n, target_bw);
       inA_random_blocks = encode_matrix_to_blocks(inA_random, m, n, target_bw);
 
-      // step 2.1 将random_blocks和inA_random_blocks逐行使用对应密钥加密
-      //  对每一行的blocks进行加密
       for (int row = 0; row < m; row++) {
-        // 计算当前行在block数组中的起始位置
         int row_start_idx = row * total_blocks_per_row;
 
-        // 加密当前行的random_blocks
         sci::AESNI_ecb_encrypt_blks(&random_blocks[row_start_idx],
                                     total_blocks_per_row,
                                     &key_random_array[row]);
 
-        // 加密当前行的inA_random_blocks
         sci::AESNI_ecb_encrypt_blks(&inA_random_blocks[row_start_idx],
                                     total_blocks_per_row,
                                     &key_inA_random_array[row]);
@@ -2071,10 +1974,8 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm(
              m, total_blocks, bit_inB);
     }
 
-    // step 3 将enc_random和enc_inA_random发送给bob
-
     sci::block128 *received_enc_random =
-        new sci::block128[total_blocks]; // bob收到的密文
+        new sci::block128[total_blocks]; 
     sci::block128 *received_enc_inA_random = new sci::block128[total_blocks];
     if (party == sci::ALICE) {
       iopack->io->send_data(random_blocks,
@@ -2088,53 +1989,42 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm(
                             total_blocks * sizeof(sci::block128));
     }
 
-    // step 4
-    // alice调用otpack->iknp_straight->send，输入m个（key_random，key_inA_random）pair
-    // step 4.1 bob调用otpack->iknp_straight->recv，输入m个choice bit
     sci::block128 received_key_block[m];
     bool ot_choice_bool[m];
     if (party == sci::ALICE) {
       sci::block128 ot_data0[m];
       sci::block128 ot_data1[m];
 
-      // 修复：传输原始16字节密钥而不是AESNI_KEY结构体
       for (int i = 0; i < m; i++) {
         ot_data0[i] =
-            _mm_loadu_si128((__m128i *)key_bytes_random[i]); // 选择0的密钥
+            _mm_loadu_si128((__m128i *)key_bytes_random[i]); 
         ot_data1[i] =
-            _mm_loadu_si128((__m128i *)key_bytes_inA_random[i]); // 选择1的密钥
+            _mm_loadu_si128((__m128i *)key_bytes_inA_random[i]); 
       }
       otpack->iknp_straight->send(ot_data0, ot_data1, m);
     } else {
       for (int i = 0; i < m; i++) {
         ot_choice_bool[i] =
-            ((inB[i] >> bit_inB) & 1); // 获取inB[i]的第bit_inB位
+            ((inB[i] >> bit_inB) & 1); 
       }
       otpack->iknp_straight->recv(received_key_block, ot_choice_bool, m);
     }
 
-    // step 5 bob根据输入的choice
-    // bit，使用拿到的密钥解密拿到的密文enc_random和enc_inA_random，得到明文random和inA_random
-    //  修复：将变量定义移到正确的作用域
     sci::block128 *decrypted_blocks = new sci::block128[total_blocks];
     sci::AESNI_KEY received_decrypt_key[m];
-    uint64_t *decoded_data = nullptr; // 修复：在外层定义
+    uint64_t *decoded_data = nullptr; 
 
     if (party == sci::BOB) {
-      // 为每一行生成解密密钥
       for (int row = 0; row < m; row++) {
         unsigned char key_bytes[16];
         _mm_storeu_si128((__m128i *)key_bytes, received_key_block[row]);
         sci::AESNI_set_decrypt_key(&received_decrypt_key[row], key_bytes, 16);
       }
 
-      // 逐行解密数据
       for (int row = 0; row < m; row++) {
         int row_start_idx = row * total_blocks_per_row;
 
-        // 根据选择位解密对应的密文
         if (ot_choice_bool[row] == 0) {
-          // 解密random数据
           for (int j = 0; j < total_blocks_per_row; j++) {
             decrypted_blocks[row_start_idx + j] =
                 received_enc_random[row_start_idx + j];
@@ -2143,7 +2033,6 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm(
                                       total_blocks_per_row,
                                       &received_decrypt_key[row]);
         } else {
-          // 解密inA_random数据
           for (int j = 0; j < total_blocks_per_row; j++) {
             decrypted_blocks[row_start_idx + j] =
                 received_enc_inA_random[row_start_idx + j];
@@ -2154,74 +2043,44 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm(
         }
       }
 
-      // 将解密后的block128数据解码为uint64_t格式
-      // step 6 将random和inA_random decode成uint64_t格式得到decoded_data
-      // 修复：使用 target_bw 位宽进行解码
       decoded_data = decode_blocks_to_matrix(decrypted_blocks, m, n, target_bw);
     }
-    // step 7 alice和bob执行outC +=  参考sirnn crossterm
     if (party == sci::ALICE) {
       uint64_t val0 = 0;
       for (int i = 0; i < m * n; i++) {
-        // 修复：random[i] 已经是 target_bw 位宽，直接取负值
         uint64_t val = (-random[i]) & target_mask;
 
         if (i == 0) {
           val0 = val;
         }
-        // 左移后正好是 bwC 位
         val = (val * (1ULL << bit_inB)) & maskC;
         outC[i] += val;
-        outC[i] &= maskC; // 最终在bwC位环中取模
+        outC[i] &= maskC; 
       }
-    //   printf("ALICE bit_inB: %d\n", bit_inB);
-    //   printf("alice random[0]: %lu\n", random[0]);
-    //   printf("alice inA_random[0]: %lu\n", inA_random[0]);
 
-    //   // 修复：正确打印16字节密钥的前4字节
-    //   printf("alice key_bytes_random[0]: 0x%02x%02x%02x%02x\n",
-    //          key_bytes_random[0][0], key_bytes_random[0][1],
-    //          key_bytes_random[0][2], key_bytes_random[0][3]);
-    //   printf("alice key_bytes_inA_random[0]: 0x%02x%02x%02x%02x\n",
-    //          key_bytes_inA_random[0][0], key_bytes_inA_random[0][1],
-    //          key_bytes_inA_random[0][2], key_bytes_inA_random[0][3]);
-    //   // 修复：正确打印block128的64位部分
-    //   uint64_t enc_random_data[2];
-    //   _mm_storeu_si128((__m128i *)enc_random_data, random_blocks[0]);
-    //   printf("alice random_blocks[0]: 0x%016llx%016llx\n", enc_random_data[1],
-    //          enc_random_data[0]);
-    //   // printf("(val * (1ULL << bit_inB)): %lu\n", (val * (1ULL << bit_inB)));
-    //   // printf("alice inA_random_blocks[0] * (1ULL << bit_inB):
-    //   // 0x%016llx%016llx\n", inA_random_blocks[1] * (1ULL << bit_inB),
-    //   // inA_random_blocks[0] * (1ULL << bit_inB));
-    //   printf("alice val0: %lu\n", val0);
-    //   printf("alice outC[0]: %lu\n", outC[0]);
       printf("ALICE //////////////////////////////////////\n");
     } else {
       uint64_t val0 = 0;
       for (int i = 0; i < m * n; i++) {
-        // 修复：decoded_data[i] 已经是 target_bw 位宽，直接使用
         uint64_t val = decoded_data[i] & target_mask;
 
         if (i == 0) {
           val0 = val;
         }
-        // 左移后正好是 bwC 位
         val = (val * (1ULL << bit_inB)) & maskC;
 
         outC[i] += val;
-        outC[i] &= maskC; // 最终在bwC位环中取模
+        outC[i] &= maskC; 
       }
 
     //   printf("BOB bit_inB: %d\n", bit_inB);
     //   printf("bob ot_choice_bool[0]: %d\n", ot_choice_bool[0]);
-    //   // 修复：正确打印接收到的密钥
     //   unsigned char received_key_bytes[16];
     //   _mm_storeu_si128((__m128i *)received_key_bytes, received_key_block[0]);
     //   printf("bob received_key: 0x%02x%02x%02x%02x\n", received_key_bytes[0],
     //          received_key_bytes[1], received_key_bytes[2],
     //          received_key_bytes[3]);
-    //   // 修复：正确打印解密后的数据
+    //   
     //   if (decoded_data != nullptr) {
     //     printf("bob decoded_data[0]: %lu\n", decoded_data[0]);
     //   }
@@ -2232,16 +2091,13 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm(
       printf("BOB //////////////////////////////////////\n");
     }
 
-    // 修复：正确的内存管理
     if (party == sci::BOB && decoded_data != nullptr) {
       delete[] decoded_data;
     }
     delete[] decrypted_blocks;
 
-    // 循环上面步骤，bob更改选择bit
   }
 
-  // 修复：在最后清理所有分配的内存
   if (party == sci::ALICE) {
     if (random != nullptr)
       delete[] random;
@@ -2262,15 +2118,10 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm(
   }
 }
 
-// 矩阵是m*n大小，vector是m长。矩阵的i行都需要与vector中的i项做乘法，但是为了降低轮数，mn矩阵和m*1的vector要一起做乘法。
-// inA和inB都是share值，outC是也是share值
-// 写mul之前要先写matrix_vectorcrossterm和crossterm reverse
 void GeometricPerspectiveProtocols::matrix_vector_mul(
     int32_t m, int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
     int32_t bwA, int32_t bwB, int32_t bwC) {}
 
-// 矩阵向量crossterm反向版本：Bob持有矩阵inA，Alice持有向量inB
-// Bob作为发送方生成随机数和加密数据，Alice作为接收方根据inB的位进行OT选择
 void GeometricPerspectiveProtocols::matrix_vector_crossterm_reverse(
     int32_t m, int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC,
     int32_t bwA, int32_t bwB) {
@@ -2278,7 +2129,6 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm_reverse(
   uint64_t maskA = (1ULL << bwA) - 1;
   uint64_t maskC = (1ULL << bwC) - 1;
 
-  // 变量定义移到正确的作用域，避免重复分配
   uint64_t *random = nullptr;
   uint64_t *inA_random = nullptr;
   sci::block128 *random_blocks = nullptr;
@@ -2288,7 +2138,6 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm_reverse(
   unsigned char(*key_bytes_random)[16] = nullptr;
   unsigned char(*key_bytes_inA_random)[16] = nullptr;
 
-  // 初始化输出数组
   for (int i = 0; i < m * n; i++) {
     outC[i] = 0;
   }
@@ -2298,36 +2147,27 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm_reverse(
     uint64_t target_mask =
         (target_bw >= 64) ? -1ULL : ((1ULL << target_bw) - 1);
 
-    // 每轮根据 target_bw 重新计算 block 参数
     int32_t values_per_block = 128 / target_bw;
     int32_t total_blocks_per_row =
         (n + values_per_block - 1) / values_per_block;
     int32_t total_blocks = m * total_blocks_per_row;
 
-    // step 0 Bob每轮生成新的随机数 random，再将随机数与inA相加得到inA_random
-
     if (party == sci::BOB) {
-      // Bob只在第一轮初始化密钥和内存
       if (bit_inB == 0) {
         random = new uint64_t[m * n];
         inA_random = new uint64_t[m * n];
 
-        // step 2 生成m组aes加密密钥对，每行一对
         key_random_array = new sci::AESNI_KEY[m];
         key_inA_random_array = new sci::AESNI_KEY[m];
         key_bytes_random = new unsigned char[m][16];
         key_bytes_inA_random = new unsigned char[m][16];
 
-        // 使用PRG生成真正的随机密钥
         sci::PRG128 prg;
 
-        // 为每一行生成不同的密钥对
         for (int row = 0; row < m; row++) {
-          // 生成16字节的随机密钥
           prg.random_data(key_bytes_random[row], 16);
           prg.random_data(key_bytes_inA_random[row], 16);
 
-          // 设置AES密钥
           sci::AESNI_set_encrypt_key(&key_random_array[row],
                                      key_bytes_random[row], 16);
           sci::AESNI_set_encrypt_key(&key_inA_random_array[row],
@@ -2335,40 +2175,28 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm_reverse(
         }
       }
 
-      // 每轮生成新的随机数（使用正确的位宽）
       srand(1234 + bit_inB * 100 + party * 10);
       for (int i = 0; i < m * n; i++) {
-        // 使用 target_bw 位宽生成随机数
         random[i] = (rand() % (target_mask + 1));
 
-        // 先将 inA[i] 从 bwA 位符号扩展到 target_bw 位
         uint64_t extended_inA = inA[i] & maskA;
-        // 在 target_bw 位环中计算 inA_random
         inA_random[i] = (extended_inA + random[i]) & target_mask;
       }
 
-      // step 1 将random 和inA_random encode成block128格式
-      //  每轮都重新释放和分配blocks
       if (bit_inB > 0) {
         delete[] random_blocks;
         delete[] inA_random_blocks;
       }
-      // 使用 target_bw 位宽进行编码
       random_blocks = encode_matrix_to_blocks(random, m, n, target_bw);
       inA_random_blocks = encode_matrix_to_blocks(inA_random, m, n, target_bw);
 
-      // step 2.1 将random_blocks和inA_random_blocks逐行使用对应密钥加密
-      //  对每一行的blocks进行加密
       for (int row = 0; row < m; row++) {
-        // 计算当前行在block数组中的起始位置
         int row_start_idx = row * total_blocks_per_row;
 
-        // 加密当前行的random_blocks
         sci::AESNI_ecb_encrypt_blks(&random_blocks[row_start_idx],
                                     total_blocks_per_row,
                                     &key_random_array[row]);
 
-        // 加密当前行的inA_random_blocks
         sci::AESNI_ecb_encrypt_blks(&inA_random_blocks[row_start_idx],
                                     total_blocks_per_row,
                                     &key_inA_random_array[row]);
@@ -2379,10 +2207,8 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm_reverse(
              m, total_blocks, bit_inB);
     }
 
-    // step 3 将enc_random和enc_inA_random发送给alice
-
     sci::block128 *received_enc_random =
-        new sci::block128[total_blocks]; // alice收到的密文
+        new sci::block128[total_blocks]; 
     sci::block128 *received_enc_inA_random = new sci::block128[total_blocks];
     if (party == sci::BOB) {
       iopack->io->send_data(random_blocks,
@@ -2396,55 +2222,42 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm_reverse(
                             total_blocks * sizeof(sci::block128));
     }
 
-    // step 4
-    // Bob调用otpack->iknp_reversed->send，输入m个（key_random，key_inA_random）pair
-    // step 4.1 Alice调用otpack->iknp_reversed->recv，输入m个choice bit
     sci::block128 received_key_block[m];
     bool ot_choice_bool[m];
     if (party == sci::BOB) {
       sci::block128 ot_data0[m];
       sci::block128 ot_data1[m];
 
-      // 传输原始16字节密钥而不是AESNI_KEY结构体
       for (int i = 0; i < m; i++) {
         ot_data0[i] =
-            _mm_loadu_si128((__m128i *)key_bytes_random[i]); // 选择0的密钥
+            _mm_loadu_si128((__m128i *)key_bytes_random[i]); 
         ot_data1[i] =
-            _mm_loadu_si128((__m128i *)key_bytes_inA_random[i]); // 选择1的密钥
+            _mm_loadu_si128((__m128i *)key_bytes_inA_random[i]); 
       }
-      // 使用reversed OT，Bob作为发送方
       otpack->iknp_reversed->send(ot_data0, ot_data1, m);
     } else {
       for (int i = 0; i < m; i++) {
         ot_choice_bool[i] =
-            ((inB[i] >> bit_inB) & 1); // 获取inB[i]的第bit_inB位
+            ((inB[i] >> bit_inB) & 1); 
       }
-      // 使用reversed OT，Alice作为接收方
       otpack->iknp_reversed->recv(received_key_block, ot_choice_bool, m);
     }
 
-    // step 5 Alice根据输入的choice
-    // bit，使用拿到的密钥解密拿到的密文enc_random和enc_inA_random，得到明文random和inA_random
-    //  将变量定义移到正确的作用域
     sci::block128 *decrypted_blocks = new sci::block128[total_blocks];
     sci::AESNI_KEY received_decrypt_key[m];
-    uint64_t *decoded_data = nullptr; // 在外层定义
+    uint64_t *decoded_data = nullptr; 
 
     if (party == sci::ALICE) {
-      // 为每一行生成解密密钥
       for (int row = 0; row < m; row++) {
         unsigned char key_bytes[16];
         _mm_storeu_si128((__m128i *)key_bytes, received_key_block[row]);
         sci::AESNI_set_decrypt_key(&received_decrypt_key[row], key_bytes, 16);
       }
 
-      // 逐行解密数据
       for (int row = 0; row < m; row++) {
         int row_start_idx = row * total_blocks_per_row;
 
-        // 根据选择位解密对应的密文
         if (ot_choice_bool[row] == 0) {
-          // 解密random数据
           for (int j = 0; j < total_blocks_per_row; j++) {
             decrypted_blocks[row_start_idx + j] =
                 received_enc_random[row_start_idx + j];
@@ -2453,7 +2266,6 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm_reverse(
                                       total_blocks_per_row,
                                       &received_decrypt_key[row]);
         } else {
-          // 解密inA_random数据
           for (int j = 0; j < total_blocks_per_row; j++) {
             decrypted_blocks[row_start_idx + j] =
                 received_enc_inA_random[row_start_idx + j];
@@ -2464,26 +2276,20 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm_reverse(
         }
       }
 
-      // 将解密后的block128数据解码为uint64_t格式
-      // step 6 将random和inA_random decode成uint64_t格式得到decoded_data
-      // 使用 target_bw 位宽进行解码
       decoded_data = decode_blocks_to_matrix(decrypted_blocks, m, n, target_bw);
     }
 
-    // step 7 Bob和Alice执行outC +=  参考sirnn crossterm
     if (party == sci::BOB) {
       uint64_t val0 = 0;
       for (int i = 0; i < m * n; i++) {
-        // random[i] 已经是 target_bw 位宽，直接取负值
         uint64_t val = (-random[i]) & target_mask;
 
         if (i == 0) {
           val0 = val;
         }
-        // 左移后正好是 bwC 位
         val = (val * (1ULL << bit_inB)) & maskC;
         outC[i] += val;
-        outC[i] &= maskC; // 最终在bwC位环中取模
+        outC[i] &= maskC; 
       }
     //   printf("BOB_REVERSE bit_inB: %d\n", bit_inB);
     //   printf("bob random[0]: %lu\n", random[0]);
@@ -2494,28 +2300,24 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm_reverse(
     } else {
       uint64_t val0 = 0;
       for (int i = 0; i < m * n; i++) {
-        // decoded_data[i] 已经是 target_bw 位宽，直接使用
         uint64_t val = decoded_data[i] & target_mask;
 
         if (i == 0) {
           val0 = val;
         }
-        // 左移后正好是 bwC 位
         val = (val * (1ULL << bit_inB)) & maskC;
 
         outC[i] += val;
-        outC[i] &= maskC; // 最终在bwC位环中取模
+        outC[i] &= maskC; 
       }
 
     //   printf("ALICE_REVERSE bit_inB: %d\n", bit_inB);
     //   printf("alice ot_choice_bool[0]: %d\n", ot_choice_bool[0]);
-    //   // 正确打印接收到的密钥
     //   unsigned char received_key_bytes[16];
     //   _mm_storeu_si128((__m128i *)received_key_bytes, received_key_block[0]);
     //   printf("alice received_key: 0x%02x%02x%02x%02x\n", received_key_bytes[0],
     //          received_key_bytes[1], received_key_bytes[2],
     //          received_key_bytes[3]);
-    //   // 正确打印解密后的数据
     //   if (decoded_data != nullptr) {
     //     printf("alice decoded_data[0]: %lu\n", decoded_data[0]);
     //   }
@@ -2524,16 +2326,13 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm_reverse(
     //   printf("ALICE_REVERSE //////////////////////////////////////\n");
     }
 
-    // 正确的内存管理
     if (party == sci::ALICE && decoded_data != nullptr) {
       delete[] decoded_data;
     }
     delete[] decrypted_blocks;
 
-    // 循环上面步骤，alice更改选择bit
   }
 
-  // 在最后清理所有分配的内存
   if (party == sci::BOB) {
     if (random != nullptr)
       delete[] random;
@@ -2557,8 +2356,6 @@ void GeometricPerspectiveProtocols::matrix_vector_crossterm_reverse(
 void GeometricPerspectiveProtocols::matrix_vector_unsigned_mul(
     int32_t m, int32_t n, uint64_t *inA, uint64_t *inB, uint64_t *outC, int32_t bwA,
     int32_t bwB, int32_t bwC) {
-  // 将向量inB[m]扩展为矩阵形式inB_expanded[m*n]
-  // 其中每一行都是对应的向量元素：inB_expanded[i*n+j] = inB[i]
   auto *inB_expanded = new uint64_t[m*n];
   for (int i = 0; i < m; i++) {
     for (int j = 0; j < n; j++) {
@@ -2572,12 +2369,8 @@ void GeometricPerspectiveProtocols::matrix_vector_unsigned_mul(
     c[i] = 0;
     d[i] = 0;
   }
-//   if (bwA >= bwB) {
     matrix_vector_crossterm(m, n, inA, inB, d, bwA, bwB);
     matrix_vector_crossterm_reverse(m, n, inA, inB, c, bwA, bwB);
-//   } else {
-//     assert(false && "bwA < bwB is not supported");
-//   }
   auto *wx = new uint8_t[m*n];
   auto *wy = new uint8_t[m*n];
   uint8_t *msb0 = new uint8_t[m*n]();
@@ -2585,10 +2378,10 @@ void GeometricPerspectiveProtocols::matrix_vector_unsigned_mul(
     msb0[i] = 0;
   }
   aux->MSB_to_Wrap(inA, msb0, wx, m*n, bwA);
-  aux->MSB_to_Wrap(inB_expanded, msb0, wy, m*n, bwB);  // 使用扩展后的inB_expanded
+  aux->MSB_to_Wrap(inB_expanded, msb0, wy, m*n, bwB);  
   auto *h = new uint64_t[m*n];
   auto *g = new uint64_t[m*n];
-  aux->multiplexer(wx, inB_expanded, h, m*n, bwB, bwB);  // 使用扩展后的inB_expanded
+  aux->multiplexer(wx, inB_expanded, h, m*n, bwB, bwB);  
   aux->multiplexer(wy, inA, g, m*n, bwA, bwA);
   uint64_t mask = (1ULL << bwC) - 1;
   for (int i = 0; i < m*n; i++) {
@@ -2596,7 +2389,7 @@ void GeometricPerspectiveProtocols::matrix_vector_unsigned_mul(
                (h[i] * (1ULL << bwA))) &
               mask;
   }
-  delete[] inB_expanded;  // 清理扩展后的数组
+  delete[] inB_expanded;  
   delete[] c;
   delete[] d;
   delete[] wx;
