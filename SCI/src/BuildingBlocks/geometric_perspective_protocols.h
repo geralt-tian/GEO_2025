@@ -29,6 +29,8 @@ class GeometricPerspectiveProtocols {
         // Destructor
         ~GeometricPerspectiveProtocols();
 
+// void GeometricPerspectiveProtocols::division(uint64_t *input, uint64_t *output, int32_t dim, uint64_t divisor, uint_32_bw);
+
         // Bit Multiplication Protocol
         void bit_mul(int32_t dim, uint64_t *input, uint64_t *output, int32_t output_bw);
 

@@ -360,30 +360,30 @@ uint64_t *M_result = new uint64_t[dim];
     }
     
     for (int i = 0; i < dim; i++) {
-        M[i] = M[i] ^ M_eq[i];
+        // M[i] = M[i] ^ M_eq[i];
     }
 
     this->aux->B2A(M, M_result, dim, out_bw);
 }
-  for (int i = 0; i < dim; i++) {
-    output[i] = (M_result[i] + delta[i]) & mask_out;
-    // if (party == sci::ALICE){
-    //     printf("input[%d]: %llu\n", i, input[i]);
-    //     printf("input_star[%d]: %llu\n", i, x0_star[i]);
-    //     printf("compare_input[%d]: %llu\n", i, compare_input[i]);
-    //     // printf("input_delta[%d]: %llu\n", i, delta[i]);
-    // }
-    // else{
-    //     printf("input[%d]: %llu\n", i, input[i]);
-    //     printf("compare_input[%d]: %llu\n", i, compare_input[i]);
-    //     // printf("input_star[%d]: %llu\n", i, x0_star[i]);
-    //     // printf("input_delta[%d]: %llu\n", i, delta[i]);
-    // }
-    // printf("M[%d]: %lld\n", i   , M[i]);    
-    // printf("M_result[%d]: %llu\n", i, M_result[i]);
-    // printf("delta[%d]: %llu\n", i, delta[i]);
-    // printf("output[%d]: %llu\n", i, output[i]);
-}
+//   for (int i = 0; i < dim; i++) {
+//     output[i] = (M_result[i] + delta[i]) & mask_out;
+//     if (party == sci::ALICE){
+//         printf("input[%d]: %llu\n", i, input[i]);
+//         printf("input_star[%d]: %llu\n", i, x0_star[i]);
+//         printf("compare_input[%d]: %llu\n", i, compare_input[i]);
+//         // printf("input_delta[%d]: %llu\n", i, delta[i]);
+//     }
+//     else{
+//         printf("input[%d]: %llu\n", i, input[i]);
+//         printf("compare_input[%d]: %llu\n", i, compare_input[i]);
+//         // printf("input_star[%d]: %llu\n", i, x0_star[i]);
+//         // printf("input_delta[%d]: %llu\n", i, delta[i]);
+//     }
+//     printf("M[%d]: %lld\n", i   , M[i]);    
+//     printf("M_result[%d]: %llu\n", i, M_result[i]);
+//     printf("delta[%d]: %llu\n", i, delta[i]);
+//     printf("output[%d]: %llu\n", i, output[i]);
+// }
 }
 
 void GeometricPerspectiveProtocols::mux_3(int32_t dim, uint64_t *inA,
@@ -2605,3 +2605,88 @@ void GeometricPerspectiveProtocols::matrix_vector_unsigned_mul(
   delete[] h;
   delete[] g;
 }
+
+
+// void GeometricPerspectiveProtocols::division(uint64_t *input, uint64_t *output, int32_t dim, uint64_t divisor, uint_32_bw) {
+//     int l_d = ceil(log2(divisor * 1.0));
+//     int mod_mask = (1ull << bw) - 1;
+//     int div_mask = (1ull << l_d) - 1;
+//     uint64_t *mw = new uint64_t[dim];
+    
+//     auto relu = new ReLURingProtocol<sci::NetIO, int64_t>(party, 0, this->io, l_d + 1, t, this->otpack);
+
+//     mwwithB(dim, 1ULL << (bw - 1), input, mw, bw, 2);
+
+//     if (party == sci::BOB)
+//     {
+//         std::unique_ptr<uint64_t*[]> t_d;
+// 	for (uint64_t i = 0; i < dims; i++) {
+// 	    t_d[i] = new uint64_t[4];
+// 	    t_d[0] = (input[i]) / divisior;
+// 	    t_d[1] = (input[i] - mod) / divisior;
+// 	    t_d[2] = (input[i] - 2 * mod) / divisor;
+// 	    t_d[3] = 0;
+// 	}
+// 	uint_64_t *a = new uint64_t[dim];
+// 	aux->lookup_table(t_d.get(), mw, a, dim, bw, bw);
+
+//         std::unique_ptr<uint64_t*[]> t_e;
+//         for (uint64_t i = 0; i < dims; i++) {
+//             t_e[i] = new uint64_t[4];
+//             t_e[0] = (input[i]) & div_mask;
+//             t_e[1] = (input[i] - mod) & div_mask;
+//             t_e[2] = (input[i] - 2 * mod) & div_mask;
+//             t_e[3] = 0;
+//         }
+	
+//         uint_64_t *b = new uint64_t[dim];
+//         aux->lookup_table(t_e.get(), mw, b, dim, l_d+1, l_d+1);
+
+// 	int64_t *temp = new int64_t[dim];
+// 	for (int i = 0; i < dim; i++) {
+// 	    temp[i] = (input[i] % divisor) + b[i] - divisor;
+// 	}
+
+// 	int64_t *relu_res = new int64_t[dim];
+// 	uint8_t *drelu_res = new uint8_t[dim];
+// 	relu->relu(relu_resm wm dim, drelu_res);
+// 	uint64_t *arith_res = new uint64_t[dim];
+// 	aux->B2A(drelu_res, arith_res, dim, bw);
+//     } else {
+// 	std::unique_ptr<uint64_t*[]> t_d;
+//         for (uint64_t i = 0; i < dims; i++) {
+//             t_d[i] = new uint64_t[4];
+//             t_d[0] = 0;//(input[i]) / divisior;
+//             t_d[1] = 0;//(input[i] - mod) / divisior;
+//             t_d[2] = 0;//(input[i] - 2 * mod) / divisor;
+//             t_d[3] = 0;
+//         }
+//         uint_64_t *a = new uint64_t[dim];
+//         aux->lookup_table(t_d.get(), mw, a, dim, bw, bw);
+        
+//         std::unique_ptr<uint64_t*[]> t_e;
+//         for (uint64_t i = 0; i < dims; i++) {
+//             t_e[i] = new uint64_t[4];
+//             t_e[0] = 0;//(input[i]) & div_mask;
+//             t_e[1] = 0;//(input[i] - mod) & div_mask;
+//             t_e[2] = 0;//(input[i] - 2 * mod) & div_mask;
+//             t_e[3] = 0;
+//         }
+        
+//         uint_64_t *b = new uint64_t[dim];
+//         aux->lookup_table(t_e.get(), mw, b, dim, l_d+1, l_d+1);
+
+//         int64_t *temp = new int64_t[dim];
+//         for (int i = 0; i < dim; i++) {
+//             temp[i] = b[i];
+//         }
+// 	int64_t *relu_res = new int64_t[dim];
+//         uint8_t *drelu_res = new uint8_t[dim];
+//         relu->relu(relu_resm wm dim, drelu_res);
+//         uint64_t *arith_res = new uint64_t[dim];
+//         aux->B2A(drelu_res, arith_res, dim, bw);
+
+//     }    
+
+
+// }

@@ -70,8 +70,8 @@ GeometricPerspectiveProtocols *gp;
 // LinearOT *prod;
 // int dim = pow(2, 20);
 // int dim = 1;
-// int dim = 1048576;
-int dim = 48576;
+// int dim = 16384;
+int dim = 1ULL<<18;
 uint64_t acc = 2;
 uint64_t init_input = 0;
 uint64_t step_size = 1;
@@ -185,19 +185,31 @@ int main(int argc, char **argv) {
   //   MW_cos_lut[j] = MW_cos_lut[j] + (1ULL<<(bwL_MW-1));
   // }
   uint64_t *MW = new uint64_t[dim];
+  uint64_t *MW_plain = new uint64_t[dim];
   size_t comm_start = iopack->io->counter;
+  auto start_time = chrono::high_resolution_clock::now();
+
+  uint seed = 10;
   for (int i = 0; i < dim; i++) {
     // inA[i] = rand() & mask_bwL_input;
-    // inB[i] = rand() & mask_bwL_input; 
-    inA[i] = (rand() & mask_bwL_input) % B;
-    inB[i] = (rand() & mask_bwL_input) % B; 
-    // inA[i] = ((0 + i * 20) & mask_bwL_input) % B;      // ensure inA < B
-    // inB[i] = ((init_input + i * 11) & mask_bwL_input) % B; // ensure inB < B
-    
-    // compute_MW_plain(inA, inB, MW, dim, N_input);
-  }
+    // inB[i] = rand() & mask_bwL_input;
 
+    inA[i] = (rand_r(&seed) & mask_bwL_input) % (B / 2);
+    inB[i] = (rand_r(&seed) & mask_bwL_input) % (B / 2); 
+
+    // inA[i] = (rand() & mask_bwL_input) % (B / 2);
+    // inB[i] = (rand() & mask_bwL_input) % (B / 2); 
+
+    // inA[i] = ((0 + i * 1) & mask_bwL_input) ;      // ensure inA < B
+    // inB[i] = ((init_input + i * 2) & mask_bwL_input); // ensure inB < B
+  }
+  
+  // 在循环外只调用一次
+  compute_MW_plain(inA, inB, MW_plain, dim, N_input);
+  printf("B: %llu\n", B);
      // 调用MW协议
+
+  size_t comm_start_mw = iopack->io->counter;
   if (B == N_input/4) {
     if (party == ALICE) {
       gp->mw(dim, inA, MW, bwL_input, 2);
@@ -211,6 +223,8 @@ int main(int argc, char **argv) {
       gp->mwwithB(dim, B, inB, MW, bwL_input, 2);
     }
   }
+  size_t comm_end_mw = iopack->io->counter;
+
   if (party == ALICE) {
     iopack->io->send_data(MW, dim * sizeof(uint64_t));
   }
@@ -218,8 +232,16 @@ int main(int argc, char **argv) {
     uint64_t *MW_recv = new uint64_t[dim];
     iopack->io->recv_data(MW_recv, dim * sizeof(uint64_t));
     for (int i = 0; i < dim; i++) {
-      MW[i] = (MW_recv[i] + MW[i]) & 4;
+      // if (MW_plain[i] != (MW_recv[i] + MW[i])  & ((1ULL << 2) - 1)) {
+      if (MW_plain[i] != ((MW_recv[i] + MW[i]) & ((1ULL << 2) - 1))) {
+        printf("inA[%d]: %llu, inB[%d]: %llu\n", i, inA[i], i, inB[i]);
+        printf("MW_plain[%d]: %llu, MW_recv[%d]: %llu, MW[%d]: %llu\n", i, MW_plain[i], i, MW_recv[i], i, MW[i]);
+        return 0;
+      }
+      MW[i] = (MW_recv[i] + MW[i])  & ((1ULL << 2) - 1);
+
     }
+    
     delete[] MW_recv;
   }
   // for (int i = 0; i < dim; i++) {
@@ -334,24 +356,131 @@ int main(int argc, char **argv) {
   uint64_t *cos_inA_sin_inB = new uint64_t[dim];
   uint64_t *cos_inA_cos_inB = new uint64_t[dim];
   uint64_t *sin_inA_sin_inB = new uint64_t[dim];
-
+  uint64_t mask_2bwL_t = (2*bwL_t == 64 ? -1 : ((1ULL << (2*bwL_t)) - 1));
   uint64_t *zero = new uint64_t[dim];
   for (int i = 0; i < dim; i++) {
     zero[i] = 0;
   }
 
-  if (party == ALICE) {
-    prod->hadamard_product(dim, sin_inA, zero, sin_inA_cos_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
-    prod->hadamard_product(dim, cos_inA, zero, cos_inA_sin_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
-    prod->hadamard_product(dim, cos_inA, zero, cos_inA_cos_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
-    prod->hadamard_product(dim, sin_inA, zero, sin_inA_sin_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
-  } else {
-    prod->hadamard_product(dim, zero, cos_inB, sin_inA_cos_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
-    prod->hadamard_product(dim, zero, sin_inB, cos_inA_sin_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
-    prod->hadamard_product(dim, zero, cos_inB, cos_inA_cos_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
-    prod->hadamard_product(dim, zero, sin_inB, sin_inA_sin_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
+  size_t had_comm_start = iopack->io->counter;
+
+  if (party == ALICE)
+  {
+    for (int i = 0; i < dim; i++) {
+      sin_inA[i] = (sin_inA[i] + (1ULL << f_t)) & mask_bwL_t;
+      cos_inA[i] = (cos_inA[i] + (1ULL << f_t)) & mask_bwL_t;
+    }
+  }
+  else {
+    for (int i = 0; i < dim; i++) {
+      sin_inB[i] = (sin_inB[i] + (1ULL << f_t)) & mask_bwL_t;
+      cos_inB[i] = (cos_inB[i] + (1ULL << f_t)) & mask_bwL_t;
+    }
   }
 
+  if (party == ALICE)
+  {
+    gp->cross_term (dim, sin_inA, zero, sin_inA_cos_inB, bwL_t, bwL_t,
+      bwL_t+bwL_t);
+    gp->cross_term (dim, cos_inA, zero, cos_inA_sin_inB, bwL_t, bwL_t,
+        bwL_t+bwL_t);
+    gp->cross_term (dim, cos_inA, zero, cos_inA_cos_inB, bwL_t, bwL_t,
+          bwL_t+bwL_t);
+    gp->cross_term (dim, sin_inA, zero, sin_inA_sin_inB, bwL_t, bwL_t,
+            bwL_t+bwL_t);
+  }
+  else {
+    gp->cross_term (dim, zero, cos_inB, sin_inA_cos_inB, bwL_t, bwL_t,
+      bwL_t+bwL_t);
+    gp->cross_term (dim, zero, sin_inB, cos_inA_sin_inB, bwL_t, bwL_t,
+        bwL_t+bwL_t);
+    gp->cross_term (dim, zero, cos_inB, cos_inA_cos_inB, bwL_t, bwL_t,
+          bwL_t+bwL_t);
+    gp->cross_term (dim, zero, sin_inB, sin_inA_sin_inB, bwL_t, bwL_t,
+            bwL_t+bwL_t);
+  }
+
+
+  // for (int i = 0; i < 100; i++) {
+  //   printf("\n");
+  //   if (party == ALICE) {
+  //     printf("111111");
+  //     printf("sin_inA[%d]: %llu\n", i, sin_inA[i]);
+  //     printf("cos_inA[%d]: %llu\n", i, cos_inA[i]);
+  //     printf("sin_inA_cos_inB[%d]: %llu\n", i, sin_inA_cos_inB[i]);
+  //     printf("cos_inA_sin_inB[%d]: %llu\n", i, cos_inA_sin_inB[i]);
+  //     printf("cos_inA_cos_inB[%d]: %llu\n", i, cos_inA_cos_inB[i]);
+  //     printf("sin_inA_sin_inB[%d]: %llu\n", i, sin_inA_sin_inB[i]);
+  //     printf("\n");
+  //   } else {
+  //     printf("111111");
+  //     printf("sin_inB[%d]: %llu\n", i, sin_inB[i]);
+  //     printf("cos_inB[%d]: %llu\n", i, cos_inB[i]);
+  //     printf("sin_inA_cos_inB[%d]: %llu\n", i, sin_inA_cos_inB[i]);
+  //     printf("cos_inA_sin_inB[%d]: %llu\n", i, cos_inA_sin_inB[i]);
+  //     printf("cos_inA_cos_inB[%d]: %llu\n", i, cos_inA_cos_inB[i]);
+  //     printf("sin_inA_sin_inB[%d]: %llu\n", i, sin_inA_sin_inB[i]);
+  //     printf("\n");
+  //   }
+  // }
+  
+
+
+  if (party == ALICE)
+  {
+    for (int i = 0; i < dim; i++) {
+      sin_inA_cos_inB[i] = (sin_inA_cos_inB[i] - (sin_inA[i] ) * (1ULL << f_t) + (1ULL << 2*f_t)) & mask_2bwL_t;
+      cos_inA_sin_inB[i] = (cos_inA_sin_inB[i] - (cos_inA[i] ) * (1ULL << f_t) + (1ULL << 2*f_t)) & mask_2bwL_t;
+      cos_inA_cos_inB[i] = (cos_inA_cos_inB[i] - (cos_inA[i] ) * (1ULL << f_t) + (1ULL << 2*f_t)) & mask_2bwL_t;
+      sin_inA_sin_inB[i] = (sin_inA_sin_inB[i] - (sin_inA[i] ) * (1ULL << f_t) + (1ULL << 2*f_t)) & mask_2bwL_t;
+    }
+  }
+  else {
+    for (int i = 0; i < dim; i++) {
+      sin_inA_cos_inB[i] = (sin_inA_cos_inB[i] - (cos_inB[i] ) * (1ULL << f_t)) & mask_2bwL_t;
+      cos_inA_sin_inB[i] = (cos_inA_sin_inB[i] - (sin_inB[i] ) * (1ULL << f_t)) & mask_2bwL_t;
+      cos_inA_cos_inB[i] = (cos_inA_cos_inB[i] - (cos_inB[i] ) * (1ULL << f_t)) & mask_2bwL_t;
+      sin_inA_sin_inB[i] = (sin_inA_sin_inB[i] - (sin_inB[i] ) * (1ULL << f_t)) & mask_2bwL_t;
+    }
+  }
+
+
+  for (int i = 0; i < 100; i++) {
+    printf("\n");
+    if (party == ALICE) {
+      printf("222222");
+      printf("sin_inA[%d]: %llu\n", i, sin_inA[i]);
+      printf("cos_inA[%d]: %llu\n", i, cos_inA[i]);
+      printf("sin_inA_cos_inB[%d]: %llu\n", i, sin_inA_cos_inB[i]);
+      printf("cos_inA_sin_inB[%d]: %llu\n", i, cos_inA_sin_inB[i]);
+      printf("cos_inA_cos_inB[%d]: %llu\n", i, cos_inA_cos_inB[i]);
+      printf("sin_inA_sin_inB[%d]: %llu\n", i, sin_inA_sin_inB[i]);
+      printf("\n");
+    } else {
+      printf("222222");
+      printf("sin_inB[%d]: %llu\n", i, sin_inB[i]);
+      printf("cos_inB[%d]: %llu\n", i, cos_inB[i]);
+      printf("sin_inA_cos_inB[%d]: %llu\n", i, sin_inA_cos_inB[i]);
+      printf("cos_inA_sin_inB[%d]: %llu\n", i, cos_inA_sin_inB[i]);
+      printf("cos_inA_cos_inB[%d]: %llu\n", i, cos_inA_cos_inB[i]);
+      printf("sin_inA_sin_inB[%d]: %llu\n", i, sin_inA_sin_inB[i]);
+      printf("\n");
+    }
+  }
+  
+
+  // if (party == ALICE) {
+  //   prod->hadamard_product(dim, sin_inA, zero, sin_inA_cos_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
+  //   prod->hadamard_product(dim, cos_inA, zero, cos_inA_sin_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
+  //   prod->hadamard_product(dim, cos_inA, zero, cos_inA_cos_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
+  //   prod->hadamard_product(dim, sin_inA, zero, sin_inA_sin_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
+  // } else {
+  //   prod->hadamard_product(dim, zero, cos_inB, sin_inA_cos_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
+  //   prod->hadamard_product(dim, zero, sin_inB, cos_inA_sin_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
+  //   prod->hadamard_product(dim, zero, cos_inB, cos_inA_cos_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
+  //   prod->hadamard_product(dim, zero, sin_inB, sin_inA_sin_inB, bwL_t, bwL_t, bwL_t+bwL_t, true, true, MultMode::Alice_has_A);
+  // }
+  size_t had_comm_end = iopack->io->counter;
   
   // for (int i = 0; i < 100; i++) {
   //   printf("\n");
@@ -375,48 +504,37 @@ int main(int argc, char **argv) {
   uint64_t *sc_add_cs_lut_buffer = new uint64_t[dim * 4];
   uint64_t *cc_min_ss_lut_buffer = new uint64_t[dim * 4];
   uint64_t mask_2bwL_t_bwL_T = (2*bwL_t+bwL_T == 64 ? -1 : ((1ULL << (2*bwL_t+bwL_T)) - 1));
-  uint64_t mask_2bwL_t = (2*bwL_t == 64 ? -1 : ((1ULL << (2*bwL_t)) - 1));
+
+  size_t comm_start_sextend_1 = iopack->io->counter;
   //step 14: compute select table
+  uint64_t *sc_add_cs = new uint64_t[dim];
+  uint64_t *cc_min_ss = new uint64_t[dim];
+  uint64_t *sc_add_cs_lut = new uint64_t[dim];
+  uint64_t *cc_min_ss_lut = new uint64_t[dim];
+  for (int j = 0; j < dim; j++) {
+    sc_add_cs[j] = (sin_inA_cos_inB[j] + cos_inA_sin_inB[j]) & mask_2bwL_t;
+    cc_min_ss[j] = (cos_inA_cos_inB[j] - sin_inA_sin_inB[j]) & mask_2bwL_t;
+  }
+
+  uint64_t *ext_sc_add_cs = new uint64_t[dim];
+  uint64_t *ext_cc_min_ss = new uint64_t[dim];
+  for (int j = 0; j < dim; j++) {
+    ext_sc_add_cs[j] = 0;
+    ext_cc_min_ss[j] = 0;
+  }
+  uint8_t *msb0 = new uint8_t[dim];
+  for (int j = 0; j < dim; j++) {
+    msb0[j] = 0;
+  }
+  for (int j = 0; j < dim; j++) {
+    sc_add_cs[j] = (sc_add_cs[j] + (1ULL<<(2*f_t )))  & mask_2bwL_t;
+    cc_min_ss[j] = (cc_min_ss[j] + (1ULL<<(2*f_t )))  & mask_2bwL_t;
+  }
+  ext->s_extend(dim, sc_add_cs, ext_sc_add_cs, 2*bwL_t, 2*bwL_t + bwL_T, msb0);
+  ext->s_extend(dim, cc_min_ss, ext_cc_min_ss, 2*bwL_t, 2*bwL_t + bwL_T, msb0);
+  
   for (int i = 0; i < 4; i++) {
-    uint64_t *sc_add_cs = new uint64_t[dim];
-    uint64_t *cc_min_ss = new uint64_t[dim];
-    uint64_t *sc_add_cs_lut = new uint64_t[dim];
-    uint64_t *cc_min_ss_lut = new uint64_t[dim];
-    for (int j = 0; j < dim; j++) {
-      sc_add_cs[j] = (sin_inA_cos_inB[j] + cos_inA_sin_inB[j]) & mask_2bwL_t;
-      cc_min_ss[j] = (cos_inA_cos_inB[j] - sin_inA_sin_inB[j]) & mask_2bwL_t;
-    }
-    // uint64_t *MW_cos_lut_extend = new uint64_t[dim];
-    // uint64_t *MW_sin_lut_extend = new uint64_t[dim];
-    // for (int j = 0; j < dim; j++) {
-    //   MW_cos_lut_extend[j] = MW_cos_lut[i];
-    //   MW_sin_lut_extend[j] = MW_sin_lut[i];
-    // }
 
-
-    
-    // if (party == ALICE) {
-    //   prod->hadamard_product(dim, sc_add_cs , MW_cos_lut_extend, sc_add_cs_lut, 2*bwL_t, bwL_T, 2*bwL_t+bwL_T, true, true, MultMode::Alice_has_B);
-    //   prod->hadamard_product(dim, cc_min_ss , MW_sin_lut_extend, cc_min_ss_lut, 2*bwL_t, bwL_T, 2*bwL_t+bwL_T, true, true, MultMode::Alice_has_B);
-    // } else {
-    //   prod->hadamard_product(dim, sc_add_cs , zero             , sc_add_cs_lut, 2*bwL_t, bwL_T, 2*bwL_t+bwL_T, true, true, MultMode::Alice_has_B);
-    //   prod->hadamard_product(dim, cc_min_ss , zero             , cc_min_ss_lut, 2*bwL_t, bwL_T, 2*bwL_t+bwL_T, true, true, MultMode::Alice_has_B);
-    // }
-
-
-    uint64_t *ext_sc_add_cs = new uint64_t[dim];
-    uint64_t *ext_cc_min_ss = new uint64_t[dim];
-    uint8_t *msb0 = new uint8_t[dim];
-    for (int j = 0; j < dim; j++) {
-      msb0[j] = 0;
-    }
-    for (int j = 0; j < dim; j++) {
-      sc_add_cs[j] = (sc_add_cs[j] + (1ULL<<(2*f_t )))  & mask_2bwL_t;
-      cc_min_ss[j] = (cc_min_ss[j] + (1ULL<<(2*f_t ))) & mask_2bwL_t;
-    }
-    ext->s_extend(dim, sc_add_cs, ext_sc_add_cs, 2*bwL_t, 2*bwL_t + bwL_T, msb0);
-    ext->s_extend(dim, cc_min_ss, ext_cc_min_ss, 2*bwL_t, 2*bwL_t + bwL_T, msb0);
-    
     for (int j = 0; j < dim; j++) {
       ext_sc_add_cs[j] = (ext_sc_add_cs[j] * (1ULL<<(f_T ))- (1ULL<<(2*f_t + f_T))) & mask_2bwL_t_bwL_T;
       ext_cc_min_ss[j] = (ext_cc_min_ss[j] * (1ULL<<(f_T ))- (1ULL<<(2*f_t + f_T))) & mask_2bwL_t_bwL_T;
@@ -437,7 +555,7 @@ int main(int argc, char **argv) {
       cc_min_ss_lut[j] = ((prod2 ) >> (2*f_t + f_T)) & mask_2bwL_t_bwL_T;
     }
   }
-
+  
 
 
     // for (int j = 0; j < 100; j++) {
@@ -459,7 +577,10 @@ int main(int argc, char **argv) {
       cc_min_ss_lut_buffer[i * dim + j] = cc_min_ss_lut[j];
     }
   }
+  size_t comm_end_sextend_1 = iopack->io->counter;
+
   //step 16: send lut buffer to bob
+  size_t comm_start_lut = iopack->io->counter;
   uint64_t *sc_add_cs_lut_buffer_recv = new uint64_t[dim * 4];
   uint64_t *cc_min_ss_lut_buffer_recv = new uint64_t[dim * 4];
   
@@ -476,7 +597,8 @@ int main(int argc, char **argv) {
       }
     }
   }
-
+  
+  
 
   // uint64_t *temp0 = new uint64_t[dim];
   // uint64_t *temp1 = new uint64_t[dim];
@@ -499,18 +621,35 @@ int main(int argc, char **argv) {
     aux->lookup_table<uint64_t>(nullptr, MW, T_add_T, dim, 2,2*bwL_t+bwL_T);
 
   }
-
+  size_t comm_end_lut = iopack->io->counter;
 
   uint64_t *T_add_T_reduce = new uint64_t[dim];
   for (int i = 0; i < dim; i++) {
     T_add_T_reduce[i] = T_add_T[i] >> (2*f_t+f_T-f_output);
   }
 
-  ext->s_extend(dim, T_add_T_reduce, res_exp, f_output+5, bwL_output, nullptr);
+  uint64_t mask_5_f_output = (1ULL << (f_output+5)) - 1;
+  for (int i = 0; i < dim; i++) {
+    T_add_T_reduce[i] =( T_add_T_reduce[i] + (1ULL<<(f_output -1))) & mask_5_f_output;
+  }
+  // uint8_t *msb0 = new uint8_t[dim];
+  // for (int j = 0; j < dim; j++) {
+  //   msb0[j] = 0;
+  // }
+  size_t comm_start_sextend_2 = iopack->io->counter;
+  ext->s_extend(dim, T_add_T_reduce, res_exp, f_output+5, bwL_output, msb0);
+  size_t comm_end_sextend_2 = iopack->io->counter;
 
+  uint64_t mask_output = (1ULL << (bwL_output)) - 1;
+  for (int i = 0; i < dim; i++) {
+    res_exp[i] = (res_exp[i] - (1ULL<<(f_output -1))) & mask_output;
+  }
 
+  size_t comm_end = iopack->io->counter;
+  size_t comm_bytes = comm_end - comm_start;
+  auto end_time = chrono::high_resolution_clock::now();
+  auto duration = chrono::duration_cast<chrono::milliseconds>(end_time - start_time);
 
-  
   uint64_t *res_exp_alice = new uint64_t[dim];
     if (party == ALICE) {
         iopack->io->send_data(res_exp, dim * sizeof(uint64_t));
@@ -521,20 +660,20 @@ int main(int argc, char **argv) {
     double *ideal_exp_plain = new double[dim];
     double ulp = 1.0 / (1 << f_output); 
     uint64_t mask_MWlut_outC = (1ULL << bwL_output) - 1;
-    for (int i = 0; i < 10000; i++) {
+    for (int i = 0; i < dim; i++) {
         // res_sin_plain[i] = static_cast<double>((res_exp_alice[i] + res_exp[i]) & mask_MWlut_outC) / std::pow(2, f_output);
         res_sin_plain[i] = fix2double(res_exp_alice[i], res_exp[i], bwL_output, f_output);
         ideal_exp_plain[i] = std::sin(fix2double(inA[i], inB[i], bwL_input, f_input));
-        printf("inA[%u]: %u\n", i, inA[i]);
-        printf("inB[%u]: %u\n", i, inB[i]);
-        printf("MW[%d]: %d\n", i, MW[i]);
-        printf("res_exp_alice[%d]: %llu\n", i, res_exp_alice[i]);
-        printf("res_exp[%d]: %llu\n", i, res_exp[i]);
-        printf("res_sin_plain[%d]: %.10f\n", i, res_sin_plain[i]);
-        printf("fix2double(inA[%d], inB[%d], bwL_input, f_input): %f\n", i, i, fix2double(inA[i], inB[i], bwL_input, f_input));
-        printf("ideal_exp_plain[%d]: %.10f\n", i, ideal_exp_plain[i]);
+        // printf("inA[%u]: %u\n", i, inA[i]);
+        // printf("inB[%u]: %u\n", i, inB[i]);
+        // printf("MW[%d]: %d\n", i, MW[i]);
+        // printf("res_exp_alice[%d]: %llu\n", i, res_exp_alice[i]);
+        // printf("res_exp[%d]: %llu\n", i, res_exp[i]);
+        // printf("res_sin_plain[%d]: %.10f\n", i, res_sin_plain[i]);
+        // printf("fix2double(inA[%d], inB[%d], bwL_input, f_input): %f\n", i, i, fix2double(inA[i], inB[i], bwL_input, f_input));
+        // printf("ideal_exp_plain[%d]: %.10f\n", i, ideal_exp_plain[i]);
         double ulp_error = fabs(ideal_exp_plain[i] - res_sin_plain[i]) / ulp;
-        printf("ULP [%d]: %.6f\n", i, ulp_error);
+        // printf("ULP [%d]: %.6f\n", i, ulp_error);
     }
     for (int i = 0; i < 4; i++) {
         printf("MW_cos_lut[%d]: %llu\n", i, MW_cos_lut[i]);
@@ -548,6 +687,13 @@ int main(int argc, char **argv) {
     ulp_sum += error / ulp;
     ulp_max = std::max(ulp_max, error / ulp);
   }
+  printf("Communication: %zu bytes\n", comm_bytes);
+  printf("Hadamard Communication: %zu bytes\n", had_comm_end - had_comm_start);
+  printf("Sextend 1 Communication: %zu bytes\n", comm_end_sextend_1 - comm_start_sextend_1);
+  printf("MW Communication: %zu bytes\n", comm_end_mw - comm_start_mw);
+  printf("LUT Communication: %zu bytes\n", comm_end_lut - comm_start_lut);
+  printf("Sextend 2 Communication: %zu bytes\n", comm_end_sextend_2 - comm_start_sextend_2);
+  printf("Computation time: %ld ms\n", duration.count());
   printf("ULP avg: %f\n", ulp_sum / dim);
   printf("ULP max: %f\n", ulp_max);
 
