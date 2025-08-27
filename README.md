@@ -32,5 +32,3 @@ To run the unit tests in the `EZPC/` folder of our MPC Protocols, use the follow
 ./SCI/build/bin/our-MW r=1 & ./SCI/build/bin/our-MW r=2
 ```
 
-**Reference Repository:**  
-**Project webpage:** <[BOLT](https://github.com/Clive2312/EzPC/tree/bert/SCI)>
