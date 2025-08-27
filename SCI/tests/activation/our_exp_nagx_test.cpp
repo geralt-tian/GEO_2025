@@ -40,7 +40,7 @@ AuxProtocols *aux;
 // Test parameters for exp_nagx
 int dim = 1048576/4;  // Test with 1024 elements
 // int dim = 1024;
-int32_t in_bw = 16;      // Input bit width
+int32_t in_bw = 37;      // Input bit width
 int32_t in_f = 12;       // Input fractional bits
 
 int32_t localexp_f = 10;   // Local exp fractional bits
@@ -98,7 +98,8 @@ int main(int argc, char **argv) {
 
     // Generate test data with fixed seed for reproducibility
     std::mt19937 gen(42);
-    std::uniform_real_distribution<double> dis(-8, -0.0001); // range [-10,0] for exp_nagx
+    std::uniform_real_distribution<double> dis(-1000, -0.001); // range [-10,0] for exp_nagx
+    // std::uniform_real_distribution<double> dis(0, 0); 
 
     cout << "Generating test data for " << dim << " elements..." << endl;
 
