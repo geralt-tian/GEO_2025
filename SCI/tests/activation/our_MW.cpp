@@ -195,12 +195,6 @@ void test_mw_protocol() {
         printf("MW Protocol Execution Time: %lld ms (%lld us)\n", 
                ms_count, us_count);
         printf("Communication: %zu bytes\n", (comm_end - comm_start));
-        
-        if (correct_count == test_dim) {
-            printf("Status: ALL TESTS PASSED\n");
-        } else {
-            printf("Status: %d TESTS FAILED\n", test_dim - correct_count);
-        }
     }
     
     delete[] alice_shares;

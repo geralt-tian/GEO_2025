@@ -16,3 +16,8 @@ evalrotkey.txt
 publickey.txt
 secretkey.txt
 
+# Exclude data folders
+output/
+quantize/
+results/
+

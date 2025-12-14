@@ -1616,7 +1616,9 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
   // }
 
   int exp_ell = 19;
+  printf("Before reduce, e_x_flat.ell = %d\n", e_x_flat.ell);
   e_x_flat = fix->reduce(e_x_flat, exp_ell);
+  printf("After reduce, e_x_flat.ell = %d\n", e_x_flat.ell);
 
 
   // for (int i = 0; i < N*n; i++){
@@ -1632,6 +1634,7 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
       e_x_tr[i].data[j] = e_x_flat.data[j*n + i];
     }
   }
+  printf("Before computing sum_e_x\n");
   FixArray sum_e_x;
   {
     vector<FixArray> tmp = e_x_tr;
@@ -1653,6 +1656,7 @@ std::tuple<vector<FixArray>, FixArray> FPMath::softmax_fix_our(const vector<FixA
     }
     sum_e_x = tmp[0];
   }
+  printf("After computing sum_e_x\n");
   
   sum_e_x.signed_ = false;
   printf("sum_e_x.data[0] = %lu\n", sum_e_x.data[0]);
