@@ -206,10 +206,6 @@ int main(int argc, char **argv) {
         printf("Total tests: %d\n", dim);
         printf("Correct results (ULP < 10): %d (%.2f%%)\n", 
                correct_results, 100.0 * correct_results / dim);
-        printf("Average ULP error: %.4f\n", total_ulp_error / dim);
-        printf("Maximum ULP error: %.4f\n", max_ulp_error);
-        printf("Average relative error: %.6f%%\n", 100.0 * total_relative_error / dim);
-        printf("Maximum relative error: %.6f%%\n", 100.0 * max_relative_error);
         
         cout << "\n=== Performance Statistics ===" << endl;
         printf("Communication: %zu bytes\n", comm_end - comm_start);
@@ -218,12 +214,7 @@ int main(int argc, char **argv) {
         printf("Computation time: %ld ms\n", duration.count());
         printf("Throughput: %.2f exp_nagx/sec\n", 
                1000.0 * dim / duration.count());
-        
-        // Additional statistics for negative exp
-        cout << "\n=== exp_nagx Specific Analysis ===" << endl;
-        printf("Input range tested: [0.1, 4.0] (positive values)\n");
-        printf("Output range: exp(-4.0) to exp(-0.1) ≈ [0.018, 0.905]\n");
-        printf("Function tested: exp(-x) where x > 0\n");
+
     }
 
     // Cleanup

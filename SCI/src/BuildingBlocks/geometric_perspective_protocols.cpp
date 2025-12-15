@@ -1,6 +1,7 @@
 // anonymous authors
 
 #include "geometric_perspective_protocols.h"
+#include "BuildingBlocks/truncation.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -290,11 +291,10 @@ uint64_t l_star;
 uint64_t mask_out = (out_bw == 64 ? -1 : ((1ULL << out_bw) - 1));
 uint64_t *compare_input = new uint64_t[dim];
   if (B == N / 2) {
-    printf("B == N / 2\n");
     l_star = in_bw;
   } else {
     l_star = ceil(log2(floor(N / (N - 2 * B))));
-}
+  }
 
 uint8_t *M = new uint8_t[dim];
 uint8_t *M_eq = new uint8_t[dim];
@@ -314,17 +314,13 @@ uint64_t *M_result = new uint64_t[dim];
     for (int i = 0; i < dim; i++) {
         delta[i] = 0;
     }
-}
+  }
 
   if (B <= (3 * N / 8)) {
-    // mw(dim, input, output, in_bw, out_bw);
+    mw(dim, input, output, in_bw, out_bw);
     return;
   } else { // B > 3N/8
     if (B == (N / 2)) {
-        // compare(N - x0,x1)
-        // uint64_t *compare_input = new uint64_t[dim];
-        printf("B == N / 2\n");
-        printf("l_star: %llu\n", l_star);
       if (party == sci::ALICE) {
         for (int i = 0; i < dim; i++) {
                 compare_input[i] = N - x0_star[i];
@@ -341,7 +337,6 @@ uint64_t *M_result = new uint64_t[dim];
         
         // delete[] compare_input;
     } else {
-      printf("B != N / 2\n");
       if (party == sci::ALICE) {
         for (int i = 0; i < dim; i++) {
           compare_input[i] = std::floor((N - x0_star[i]) / (N - 2 * B));
@@ -364,9 +359,13 @@ uint64_t *M_result = new uint64_t[dim];
     }
 
     this->aux->B2A(M, M_result, dim, out_bw);
+
+    // Apply the final output computation
+    for (int i = 0; i < dim; i++) {
+        output[i] = (M_result[i] + delta[i]) & mask_out;
+    }
 }
 //   for (int i = 0; i < dim; i++) {
-//     output[i] = (M_result[i] + delta[i]) & mask_out;
 //     if (party == sci::ALICE){
 //         printf("input[%d]: %llu\n", i, input[i]);
 //         printf("input_star[%d]: %llu\n", i, x0_star[i]);
@@ -2400,86 +2399,217 @@ void GeometricPerspectiveProtocols::matrix_vector_unsigned_mul(
 }
 
 
-// void GeometricPerspectiveProtocols::division(uint64_t *input, uint64_t *output, int32_t dim, uint64_t divisor, uint_32_bw) {
-//     int l_d = ceil(log2(divisor * 1.0));
-//     int mod_mask = (1ull << bw) - 1;
-//     int div_mask = (1ull << l_d) - 1;
-//     uint64_t *mw = new uint64_t[dim];
-    
-//     auto relu = new ReLURingProtocol<sci::NetIO, int64_t>(party, 0, this->io, l_d + 1, t, this->otpack);
+// Faithful division protocol implementation based on Algorithm 3
+void GeometricPerspectiveProtocols::division(int32_t dim, uint64_t *input, uint64_t *output,
+                                            uint64_t divisor, uint32_t bw, uint64_t B) {
+    // Implementation of Algorithm 3: Faithful division protocol
+    // Input: P0 and P1 hold [x]^l and a public d, with bound B
+    // Output: P0 and P1 output [[int(x)/d]]^l
 
-//     mwwithB(dim, 1ULL << (bw - 1), input, mw, bw, 2);
+    uint64_t mask_bw = (bw == 64 ? -1 : ((1ULL << bw) - 1));
+    uint64_t L = 1ULL << bw;  // L = 2^bw
 
-//     if (party == sci::BOB)
-//     {
-//         std::unique_ptr<uint64_t*[]> t_d;
-// 	for (uint64_t i = 0; i < dims; i++) {
-// 	    t_d[i] = new uint64_t[4];
-// 	    t_d[0] = (input[i]) / divisior;
-// 	    t_d[1] = (input[i] - mod) / divisior;
-// 	    t_d[2] = (input[i] - 2 * mod) / divisor;
-// 	    t_d[3] = 0;
-// 	}
-// 	uint_64_t *a = new uint64_t[dim];
-// 	aux->lookup_table(t_d.get(), mw, a, dim, bw, bw);
+    // Step 1: Let l_d = floor(log d)
+    int l_d = 0;
+    uint64_t temp_d = divisor;
+    while (temp_d > 1) {
+        l_d++;
+        temp_d >>= 1;
+    }
 
-//         std::unique_ptr<uint64_t*[]> t_e;
-//         for (uint64_t i = 0; i < dims; i++) {
-//             t_e[i] = new uint64_t[4];
-//             t_e[0] = (input[i]) & div_mask;
-//             t_e[1] = (input[i] - mod) & div_mask;
-//             t_e[2] = (input[i] - 2 * mod) & div_mask;
-//             t_e[3] = 0;
-//         }
-	
-//         uint_64_t *b = new uint64_t[dim];
-//         aux->lookup_table(t_e.get(), mw, b, dim, l_d+1, l_d+1);
+    // Mask for l_d+1 bits
+    uint64_t mask_ld = ((l_d + 1) == 64 ? -1 : ((1ULL << (l_d + 1)) - 1));
 
-// 	int64_t *temp = new int64_t[dim];
-// 	for (int i = 0; i < dim; i++) {
-// 	    temp[i] = (input[i] % divisor) + b[i] - divisor;
-// 	}
+    // Check if divisor is a power of 2 - can use optimized truncation
+    bool is_power_of_2 = (divisor != 0) && ((divisor & (divisor - 1)) == 0);
 
-// 	int64_t *relu_res = new int64_t[dim];
-// 	uint8_t *drelu_res = new uint8_t[dim];
-// 	relu->relu(relu_resm wm dim, drelu_res);
-// 	uint64_t *arith_res = new uint64_t[dim];
-// 	aux->B2A(drelu_res, arith_res, dim, bw);
-//     } else {
-// 	std::unique_ptr<uint64_t*[]> t_d;
-//         for (uint64_t i = 0; i < dims; i++) {
-//             t_d[i] = new uint64_t[4];
-//             t_d[0] = 0;//(input[i]) / divisior;
-//             t_d[1] = 0;//(input[i] - mod) / divisior;
-//             t_d[2] = 0;//(input[i] - 2 * mod) / divisor;
-//             t_d[3] = 0;
-//         }
-//         uint_64_t *a = new uint64_t[dim];
-//         aux->lookup_table(t_d.get(), mw, a, dim, bw, bw);
-        
-//         std::unique_ptr<uint64_t*[]> t_e;
-//         for (uint64_t i = 0; i < dims; i++) {
-//             t_e[i] = new uint64_t[4];
-//             t_e[0] = 0;//(input[i]) & div_mask;
-//             t_e[1] = 0;//(input[i] - mod) & div_mask;
-//             t_e[2] = 0;//(input[i] - 2 * mod) & div_mask;
-//             t_e[3] = 0;
-//         }
-        
-//         uint_64_t *b = new uint64_t[dim];
-//         aux->lookup_table(t_e.get(), mw, b, dim, l_d+1, l_d+1);
+    if (is_power_of_2) {
+        // For powers of 2, use proper division by power of 2
+        Truncation *trunc = new Truncation(party, iopack, otpack);
+        trunc->div_pow2(dim, input, output, l_d, bw, false);  // false for unsigned
+        delete trunc;
+        return;
+    }
 
-//         int64_t *temp = new int64_t[dim];
-//         for (int i = 0; i < dim; i++) {
-//             temp[i] = b[i];
-//         }
-// 	int64_t *relu_res = new int64_t[dim];
-//         uint8_t *drelu_res = new uint8_t[dim];
-//         relu->relu(relu_resm wm dim, drelu_res);
-//         uint64_t *arith_res = new uint64_t[dim];
-//         aux->B2A(drelu_res, arith_res, dim, bw);
+    // For general divisors, use full protocol
+    uint64_t *mw_output = new uint64_t[dim];
+    uint64_t *X1 = new uint64_t[dim];  // Will hold quotient part from lookup
+    uint64_t *l_epsilon = new uint64_t[dim];  // Will hold remainder info
 
-//     }    
+    // Step 6: Invoke MW protocol to learn [MW]^2
+    // MW classifies input into ranges for table lookup
+    // Use mwwithB with the provided B parameter
+    mwwithB(dim, B, input, mw_output, bw, 2);
 
+    // Alice sends MW share to Bob, Bob reconstructs plaintext MW
+    // (Following the pattern from our_sin.cpp)
+    if (party == sci::ALICE) {
+        iopack->io->send_data(mw_output, dim * sizeof(uint64_t));
+    } else {
+        uint64_t *mw_recv = new uint64_t[dim];
+        iopack->io->recv_data(mw_recv, dim * sizeof(uint64_t));
+        // Bob reconstructs MW = alice_mw + bob_mw
+        for (int i = 0; i < dim; i++) {
+            mw_output[i] = (mw_recv[i] + mw_output[i]) & 0x3;
+        }
+        delete[] mw_recv;
+    }
 
-// }
+    if (party == sci::ALICE) {  // P0 in the algorithm
+        // Build lookup tables for Alice (all zeros for quotient, but we still send them)
+        uint64_t **T_d = new uint64_t*[dim];
+        uint64_t **T_epsilon = new uint64_t*[dim];
+
+        for (int i = 0; i < dim; i++) {
+            T_d[i] = new uint64_t[4];
+            T_epsilon[i] = new uint64_t[4];
+            for (int j = 0; j < 4; j++) {
+                T_d[i][j] = 0;
+                T_epsilon[i][j] = 0;
+            }
+        }
+
+        // Alice sends tables via OT
+        aux->lookup_table<uint64_t>(T_d, nullptr, nullptr, dim, 2, bw);
+        aux->lookup_table<uint64_t>(T_epsilon, nullptr, nullptr, dim, 2, l_d + 1);
+
+        // Clean up tables
+        for (int i = 0; i < dim; i++) {
+            delete[] T_d[i];
+            delete[] T_epsilon[i];
+        }
+        delete[] T_d;
+        delete[] T_epsilon;
+
+        // Alice's shares are 0
+        for (int i = 0; i < dim; i++) {
+            X1[i] = 0;
+            l_epsilon[i] = 0;
+        }
+
+        // Step 9: P0 computes temp = (x0 mod d) + l_epsilon - d
+        uint64_t *temp_val = new uint64_t[dim];
+        for (int i = 0; i < dim; i++) {
+            uint64_t x0_mod_d = input[i] % divisor;
+            int64_t temp_signed = (int64_t)x0_mod_d - (int64_t)divisor;
+            temp_val[i] = temp_signed & mask_ld;
+        }
+
+        // Step 10: DReLU to detect carry
+        uint8_t *e_bool = new uint8_t[dim];
+        aux->MSB(temp_val, e_bool, dim, l_d + 1);
+
+        // Invert for DReLU (DReLU returns 0 if negative, 1 if positive)
+        for (int i = 0; i < dim; i++) {
+            e_bool[i] = 1 - e_bool[i];
+        }
+
+        // Step 11: B2A conversion
+        uint64_t *e_arith = new uint64_t[dim];
+        aux->B2A(e_bool, e_arith, dim, bw);
+
+        // Step 12: P0 outputs floor(x0/d) + [X1] + [e]
+        for (int i = 0; i < dim; i++) {
+            uint64_t x0_div_d = input[i] / divisor;  // Local division of P0's share
+            output[i] = (x0_div_d + X1[i] + e_arith[i]) & mask_bw;
+        }
+
+        delete[] temp_val;
+        delete[] e_bool;
+        delete[] e_arith;
+
+    } else { // party == BOB (P1 in the algorithm)
+        // Steps 2-5: Build lookup tables T^d and T^epsilon for P1
+        uint64_t **T_d = new uint64_t*[dim];
+        uint64_t **T_epsilon = new uint64_t*[dim];
+
+        for (int i = 0; i < dim; i++) {
+            T_d[i] = new uint64_t[4];
+            T_epsilon[i] = new uint64_t[4];
+
+            // P1 sets T^d[j] = floor((x1 - j*L)/d) and
+            // T^epsilon[j] = (x1 - j*L) mod d
+            for (int j = 0; j < 3; j++) {  // j ∈ {0,1,2}
+                // Compute (x1 - j*L) in signed arithmetic
+                int64_t val_signed = (int64_t)input[i] - (int64_t)(j * L);
+
+                // Perform floor division and modulo in signed domain
+                // Floor division: for negative numbers, round towards -∞
+                int64_t quotient, remainder;
+                if (val_signed >= 0) {
+                    quotient = val_signed / (int64_t)divisor;
+                    remainder = val_signed % (int64_t)divisor;
+                } else {
+                    // For negative numbers, ensure floor division
+                    quotient = -((-(val_signed + 1)) / (int64_t)divisor + 1);
+                    remainder = val_signed - quotient * (int64_t)divisor;
+                    if (remainder < 0) {
+                        remainder += divisor;
+                    }
+                }
+
+                // Convert to ring representation
+                T_d[i][j] = quotient & mask_bw;
+                T_epsilon[i][j] = remainder & mask_ld;
+            }
+            T_d[i][3] = 0;  // j=3 case (overflow)
+            T_epsilon[i][3] = 0;
+        }
+
+        // Step 7: P1 invokes LUT to learn [X1]^l
+        // Bob receives Alice's table value (which is 0) via OT
+        aux->lookup_table<uint64_t>(nullptr, mw_output, X1, dim, 2, bw);
+
+        // Step 8: P1 invokes LUT to learn [l_epsilon]^(l_d+1)
+        aux->lookup_table<uint64_t>(nullptr, mw_output, l_epsilon, dim, 2, l_d + 1);
+
+        // CRITICAL: Bob must add his own table values to complete the secret sharing!
+        // mw_output now contains the reconstructed plaintext MW value
+        for (int i = 0; i < dim; i++) {
+            uint64_t mw_val = mw_output[i];  // Use reconstructed plaintext MW value
+            X1[i] = (X1[i] + T_d[i][mw_val]) & mask_bw;
+            l_epsilon[i] = (l_epsilon[i] + T_epsilon[i][mw_val]) & mask_ld;
+        }
+
+        // Clean up tables
+        for (int i = 0; i < dim; i++) {
+            delete[] T_d[i];
+            delete[] T_epsilon[i];
+        }
+        delete[] T_d;
+        delete[] T_epsilon;
+
+        // Step 9: P1's share of temp is just l_epsilon (Alice already subtracted d)
+        // Combined: temp = (x0 mod d) - d + l_epsilon = (x0 mod d) + l_epsilon - d
+        uint64_t *temp_val = new uint64_t[dim];
+        for (int i = 0; i < dim; i++) {
+            temp_val[i] = l_epsilon[i] & mask_ld;  // No subtraction here!
+        }
+
+        // Step 10: DReLU to detect carry
+        uint8_t *e_bool = new uint8_t[dim];
+        aux->MSB(temp_val, e_bool, dim, l_d + 1);
+
+        // Invert for DReLU
+        for (int i = 0; i < dim; i++) {
+            e_bool[i] = 1 - e_bool[i];
+        }
+
+        // Step 11: B2A conversion
+        uint64_t *e_arith = new uint64_t[dim];
+        aux->B2A(e_bool, e_arith, dim, bw);
+
+        // Step 12: P1 outputs [X1] + [e]
+        for (int i = 0; i < dim; i++) {
+            output[i] = (X1[i] + e_arith[i]) & mask_bw;
+        }
+
+        delete[] temp_val;
+        delete[] e_bool;
+        delete[] e_arith;
+    }
+
+    delete[] mw_output;
+    delete[] X1;
+    delete[] l_epsilon;
+}

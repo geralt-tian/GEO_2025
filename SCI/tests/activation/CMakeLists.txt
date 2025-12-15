@@ -42,6 +42,7 @@ add_test_our(exp_nagx_test16)
 # add_test_BOLT(nag_exp)
 # add_test_BOLT(signed_crossterm_cipher_plain)
 add_test_our(MW)
+add_test_our(division)
 # add_test_BOLT(hadamard_product_test)
 add_test_our(sin)
 

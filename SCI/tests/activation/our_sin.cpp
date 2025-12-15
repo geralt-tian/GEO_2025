@@ -274,8 +274,8 @@ int main(int argc, char **argv) {
     double angle = -i * static_cast<double>(N_input) / pow_f_input;
     double sin_val = std::sin(angle);
     double cos_val = std::cos(angle);
-    printf("sin_val: %f\n", sin_val);
-    printf("cos_val: %f\n", cos_val);
+    // printf("sin_val: %f\n", sin_val);
+    // printf("cos_val: %f\n", cos_val);
     MW_sin_lut[i] = static_cast<uint64_t>(std::round(sin_val * N_f_T)) & mask_bwL_T;
     MW_cos_lut[i] = static_cast<uint64_t>(std::round(cos_val * N_f_T)) & mask_bwL_T;
     
@@ -295,12 +295,12 @@ int main(int argc, char **argv) {
     }
 
 
-    printf("MW_sin_lut[%d]: %llu\n", i, MW_sin_lut[i]);
-    printf("MW_cos_lut[%d]: %llu\n", i, MW_cos_lut[i]);
+    // printf("MW_sin_lut[%d]: %llu\n", i, MW_sin_lut[i]);
+    // printf("MW_cos_lut[%d]: %llu\n", i, MW_cos_lut[i]);
   }
 
-  printf("N_2f_t_f_T: %llu\n", N_2f_t_f_T);
-  printf("mask_2bwL_t_bwL_T_lut: %llu\n", mask_2bwL_t_bwL_T_lut);
+  // printf("N_2f_t_f_T: %llu\n", N_2f_t_f_T);
+  // printf("mask_2bwL_t_bwL_T_lut: %llu\n", mask_2bwL_t_bwL_T_lut);
 
   MW_sin_lut[3] = 100;
   MW_cos_lut[3] = 100;
@@ -444,28 +444,28 @@ int main(int argc, char **argv) {
   }
 
 
-  for (int i = 0; i < 100; i++) {
-    printf("\n");
-    if (party == ALICE) {
-      printf("222222");
-      printf("sin_inA[%d]: %llu\n", i, sin_inA[i]);
-      printf("cos_inA[%d]: %llu\n", i, cos_inA[i]);
-      printf("sin_inA_cos_inB[%d]: %llu\n", i, sin_inA_cos_inB[i]);
-      printf("cos_inA_sin_inB[%d]: %llu\n", i, cos_inA_sin_inB[i]);
-      printf("cos_inA_cos_inB[%d]: %llu\n", i, cos_inA_cos_inB[i]);
-      printf("sin_inA_sin_inB[%d]: %llu\n", i, sin_inA_sin_inB[i]);
-      printf("\n");
-    } else {
-      printf("222222");
-      printf("sin_inB[%d]: %llu\n", i, sin_inB[i]);
-      printf("cos_inB[%d]: %llu\n", i, cos_inB[i]);
-      printf("sin_inA_cos_inB[%d]: %llu\n", i, sin_inA_cos_inB[i]);
-      printf("cos_inA_sin_inB[%d]: %llu\n", i, cos_inA_sin_inB[i]);
-      printf("cos_inA_cos_inB[%d]: %llu\n", i, cos_inA_cos_inB[i]);
-      printf("sin_inA_sin_inB[%d]: %llu\n", i, sin_inA_sin_inB[i]);
-      printf("\n");
-    }
-  }
+  // for (int i = 0; i < 100; i++) {
+  //   printf("\n");
+  //   if (party == ALICE) {
+  //     printf("222222");
+  //     printf("sin_inA[%d]: %llu\n", i, sin_inA[i]);
+  //     printf("cos_inA[%d]: %llu\n", i, cos_inA[i]);
+  //     printf("sin_inA_cos_inB[%d]: %llu\n", i, sin_inA_cos_inB[i]);
+  //     printf("cos_inA_sin_inB[%d]: %llu\n", i, cos_inA_sin_inB[i]);
+  //     printf("cos_inA_cos_inB[%d]: %llu\n", i, cos_inA_cos_inB[i]);
+  //     printf("sin_inA_sin_inB[%d]: %llu\n", i, sin_inA_sin_inB[i]);
+  //     printf("\n");
+  //   } else {
+  //     printf("222222");
+  //     printf("sin_inB[%d]: %llu\n", i, sin_inB[i]);
+  //     printf("cos_inB[%d]: %llu\n", i, cos_inB[i]);
+  //     printf("sin_inA_cos_inB[%d]: %llu\n", i, sin_inA_cos_inB[i]);
+  //     printf("cos_inA_sin_inB[%d]: %llu\n", i, cos_inA_sin_inB[i]);
+  //     printf("cos_inA_cos_inB[%d]: %llu\n", i, cos_inA_cos_inB[i]);
+  //     printf("sin_inA_sin_inB[%d]: %llu\n", i, sin_inA_sin_inB[i]);
+  //     printf("\n");
+  //   }
+  // }
   
 
   // if (party == ALICE) {
