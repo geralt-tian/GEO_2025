@@ -13,20 +13,20 @@ We successfully completed the compilation on Ubuntu 22.04.5 LTS with Intel(R) Xe
 
 The project is organized as follows:
 
-- **/EZPC/SCI/tests**  
-  Contains all ours related code, including implementations of activation functions and models.
+- **/SCI/tests**
+  Contains all our related code, including implementations of activation functions and models.
 
-- **/EzPC/SCI/tests/activation**  
-  The **/EZPC/SCI/tests/activation** directory now includes our exulation functions:  
-  - MW  
-  - exp  
-  - sin  
-  - division  
+- **/SCI/tests/activation**
+  The **/SCI/tests/activation** directory includes our evaluation functions:
+  - MW
+  - exp
+  - sin
+  - division
   - softmax
 
 ## Running Tests
 
-To run the unit tests in the `EZPC/` folder of our MPC Protocols, use the following command:
+To run the unit tests, use the following command:
 
 ```bash
 ./SCI/build/bin/our-MW r=1 & ./SCI/build/bin/our-MW r=2
