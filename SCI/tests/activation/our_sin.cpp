@@ -224,25 +224,7 @@ int main(int argc, char **argv) {
   }
   size_t comm_end_mw = iopack->io->counter;
 
-  if (party == ALICE) {
-    iopack->io->send_data(MW, dim * sizeof(uint64_t));
-  }
-  else {
-    uint64_t *MW_recv = new uint64_t[dim];
-    iopack->io->recv_data(MW_recv, dim * sizeof(uint64_t));
-    for (int i = 0; i < dim; i++) {
-      // if (MW_plain[i] != (MW_recv[i] + MW[i])  & ((1ULL << 2) - 1)) {
-      if (MW_plain[i] != ((MW_recv[i] + MW[i]) & ((1ULL << 2) - 1))) {
-        printf("inA[%d]: %llu, inB[%d]: %llu\n", i, inA[i], i, inB[i]);
-        printf("MW_plain[%d]: %llu, MW_recv[%d]: %llu, MW[%d]: %llu\n", i, MW_plain[i], i, MW_recv[i], i, MW[i]);
-        return 0;
-      }
-      MW[i] = (MW_recv[i] + MW[i])  & ((1ULL << 2) - 1);
-
-    }
-    
-    delete[] MW_recv;
-  }
+  // Keep MW secret-shared for the shared LUT.
   // for (int i = 0; i < dim; i++) {
   //   inA[i] = (0 + i * 20 +1048575 ) & mask_bwL_input;
   //   inB[i] = (init_input+1048575 +i * 1111) & mask_bwL_input;
@@ -578,48 +560,25 @@ int main(int argc, char **argv) {
   }
   size_t comm_end_sextend_1 = iopack->io->counter;
 
-  //step 16: send lut buffer to bob
+  // Step 16: query the shared LUT without opening MW or table shares.
   size_t comm_start_lut = iopack->io->counter;
-  uint64_t *sc_add_cs_lut_buffer_recv = new uint64_t[dim * 4];
-  uint64_t *cc_min_ss_lut_buffer_recv = new uint64_t[dim * 4];
-  
-  if (party != ALICE) {
-    iopack->io->send_data(sc_add_cs_lut_buffer, dim * 4 * sizeof(uint64_t));
-    iopack->io->send_data(cc_min_ss_lut_buffer, dim * 4 * sizeof(uint64_t));
-  } else {
-    iopack->io->recv_data(sc_add_cs_lut_buffer_recv, dim * 4 * sizeof(uint64_t));
-    iopack->io->recv_data(cc_min_ss_lut_buffer_recv, dim * 4 * sizeof(uint64_t));
-    for (int i = 0; i < dim; i++) {
-      for (int j = 0; j < 4; j++) {
-        sc_add_cs_lut_buffer[i * 4 + j] = (sc_add_cs_lut_buffer[i * 4 + j] + sc_add_cs_lut_buffer_recv[i * 4 + j]) & mask_2bwL_t_bwL_T;
-        cc_min_ss_lut_buffer[i * 4 + j] = (cc_min_ss_lut_buffer[i * 4 + j] + cc_min_ss_lut_buffer_recv[i * 4 + j]) & mask_2bwL_t_bwL_T;
-      }
-    }
-  }
-  
-  
-
-  // uint64_t *temp0 = new uint64_t[dim];
-  // uint64_t *temp1 = new uint64_t[dim];
   uint64_t *T_add_T = new uint64_t[dim];
-  if (party == ALICE) {
-    uint64_t **sc_cs_lut_spec = new uint64_t *[dim];
-    // uint64_t **cc_ss_lut_spec = new uint64_t *[dim];
-    for (int i = 0; i < dim; i++) {
-      sc_cs_lut_spec[i] = new uint64_t[4];
-      // cc_ss_lut_spec[i] = new uint64_t[4];
-      for (int j = 0; j < 4; j++) {
-        sc_cs_lut_spec[i][j] = (sc_add_cs_lut_buffer[j * dim + i] + cc_min_ss_lut_buffer[j * dim + i]) & mask_2bwL_t_bwL_T;
-        // cc_ss_lut_spec[i][j] = ;
-      }
+  uint64_t **sc_cs_lut_spec = new uint64_t *[dim];
+  for (int i = 0; i < dim; i++) {
+    sc_cs_lut_spec[i] = new uint64_t[4];
+    for (int j = 0; j < 4; j++) {
+      sc_cs_lut_spec[i][j] =
+          (sc_add_cs_lut_buffer[j * dim + i] +
+           cc_min_ss_lut_buffer[j * dim + i]) &
+          mask_2bwL_t_bwL_T;
     }
-    aux->lookup_table<uint64_t>(sc_cs_lut_spec, nullptr, nullptr, dim, 2, 2*bwL_t+bwL_T);
-    // aux->lookup_table<uint64_t>(cc_ss_lut_spec, nullptr, nullptr, dim, 2, 2*bwL_t+bwL_T);
   }
-  else {
-    aux->lookup_table<uint64_t>(nullptr, MW, T_add_T, dim, 2,2*bwL_t+bwL_T);
-
+  aux->shared_lookup_table<uint64_t>(sc_cs_lut_spec, MW, T_add_T, dim, 2,
+                                     2 * bwL_t + bwL_T);
+  for (int i = 0; i < dim; i++) {
+    delete[] sc_cs_lut_spec[i];
   }
+  delete[] sc_cs_lut_spec;
   size_t comm_end_lut = iopack->io->counter;
 
   uint64_t *T_add_T_reduce = new uint64_t[dim];

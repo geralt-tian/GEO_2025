@@ -1030,22 +1030,7 @@ void GeometricPerspectiveProtocols::exp(int32_t dim, uint64_t *inA,
       ///////////////////////计算MW///////////////////////
   mwwithB(dim, MW_B, inA, MW, in_bw, 2); // compute MW
 
-  if (party == sci::ALICE) { // send MW to bob. Bob get whole MW. Alice get 0.
-        iopack->io->send_data(MW, dim * sizeof(uint64_t));
-        for (int i = 0; i < dim; i++) {
-            MW[i] = 0;
-        }
-      } else {
-        uint64_t *recv_MW = new uint64_t[dim];
-        iopack->io->recv_data(recv_MW, dim * sizeof(uint64_t));
-        for (int i = 0; i < dim; i++) {
-          MW[i] = (MW[i] + recv_MW[i]) & ((1ULL << 2) - 1);
-        }
-        delete[] recv_MW;
-      }
-
-
-    ring_exp(inA, exp_inA, dim, localexp_f, localexp_bw, in_f);
+      ring_exp(inA, exp_inA, dim, localexp_f, localexp_bw, in_f);
     uint64_t *zero = new uint64_t[dim];
     for (int i = 0; i < dim; i++) {
         zero[i] = 0;
@@ -1094,89 +1079,39 @@ void GeometricPerspectiveProtocols::exp(int32_t dim, uint64_t *inA,
         }
       }
 
-      uint64_t *buffer = new uint64_t[dim * 4];
-      uint64_t random_numberbob = 0;
-      uint64_t random_numberalice = 0;
-  uint64_t mask_res_exp =
-      (1ULL << (2 * localexp_bw - 2 * localexp_f + 2 + out_f)) - 1;
+      uint64_t *y = new uint64_t[dim];
+      uint64_t **spec = new uint64_t *[dim];
+      uint64_t mask_res_exp =
+          (1ULL << (2 * localexp_bw - 2 * localexp_f + 2 + out_f)) - 1;
 
-      if (party != sci::ALICE) {
-        for (int i = 0; i < dim; ++i) {
-          for (uint8_t j = 0; j < 4; ++j) {
-
-            __uint128_t prod = (__uint128_t)MW_lut[j] * (__uint128_t)outB[i];
-
-        __int128_t diff = (__int128_t)prod - wrap_outB[i] *
-                                                 (__int128_t)MW_lut[j] *
-                                                 (1ULL << (2 * localexp_bw));
-
-            uint64_t shift = locallut_f + localexp_f * 2 - out_f; 
-        uint64_t res =
-            (uint64_t)(((diff + (__int128_t)(1ULL << (shift - 1))) >> shift) &
-                       mask_res_exp);
-            buffer[i * 4 + j] = (res + random_numberbob) & mask_res_exp;
-          }
+      for (int i = 0; i < dim; ++i) {
+        spec[i] = new uint64_t[4];
+        for (uint8_t j = 0; j < 4; ++j) {
+          __uint128_t prod = (__uint128_t)MW_lut[j] * (__uint128_t)outB[i];
+          __int128_t diff = (__int128_t)prod - wrap_outB[i] *
+                                                (__int128_t)MW_lut[j] *
+                                                (1ULL << (2 * localexp_bw));
+          uint64_t shift = locallut_f + localexp_f * 2 - out_f;
+          uint64_t res =
+              (uint64_t)(((diff + (__int128_t)(1ULL << (shift - 1))) >>
+                          shift) &
+                         mask_res_exp);
+          spec[i][j] = res & mask_res_exp;
         }
-        iopack->io->send_data(buffer, dim * 4 * sizeof(uint64_t));
-      } else {
-        iopack->io->recv_data(buffer, dim * 4 * sizeof(uint64_t));
       }
 
-      uint64_t *y = new uint64_t[dim];
-      if (party == sci::ALICE) {
-        uint64_t **spec = new uint64_t *[dim];
-    
-        for (int i = 0; i < dim; ++i) {
-          spec[i] = new uint64_t[4];
-          for (uint8_t j = 0; j < 4; ++j) {
-            __uint128_t prod = (__uint128_t)MW_lut[j] * (__uint128_t)outB[i];
-        __int128_t diff = (__int128_t)prod - wrap_outB[i] *
-                                                 (__int128_t)MW_lut[j] *
-                                                 (1ULL << (2 * localexp_bw));
+      this->aux->shared_lookup_table<uint64_t>(
+          spec, MW, y, dim, 2, 2 * localexp_bw - 2 * localexp_f + 2 + out_f);
 
-        uint64_t shift = locallut_f + localexp_f * 2 -
-                         out_f; 
-        uint64_t res =
-            (uint64_t)(((diff + (__int128_t)(1ULL << (shift - 1))) >> shift) &
-                       mask_res_exp);
-        spec[i][j] =
-            (res + random_numberalice + buffer[i * 4 + j]) & mask_res_exp;
-          }
-        }
-
-      this->aux->lookup_table<uint64_t>(spec, nullptr, nullptr, dim, 2,
-                                      2 * localexp_bw - 2 * localexp_f + 2 +
-                                          out_f);
-        for (int i = 0; i < dim; ++i)
+      for (int i = 0; i < dim; ++i)
         delete[] spec[i];
-        delete[] spec;
-        } else if (party == sci::BOB) {
-    this->aux->lookup_table<uint64_t>(
-        nullptr, MW, y, dim, 2, 2 * localexp_bw - 2 * localexp_f + 2 + out_f);
-        }
+      delete[] spec;
 
-        uint64_t mask_result = (1ULL << (out_bw)) - 1;
-        if (party != sci::ALICE) {
-            for (int i = 0; i < dim; i++) {
-                result[i] =
-                  (y[i] - random_numberbob) & mask_result; 
-            }
-          } else {
-            for (int i = 0; i < dim; i++) {
-      result[i] = -random_numberalice & mask_result; 
-            }
-          } 
+      uint64_t mask_result = (1ULL << (out_bw)) - 1;
+      for (int i = 0; i < dim; i++) {
+        result[i] = y[i] & mask_result;
+      }
 
-          delete[] MW;
-          delete[] exp_inA;
-          delete[] MW_lut;
-          delete[] outB;
-          delete[] zero;
-          delete[] msb_0;
-          delete[] wrap_outB;
-          delete[] wrap_outB_alice_send;
-          delete[] wrap_outB_bob_recv;
-          delete[] buffer;
           delete[] y;
 }
 
@@ -1216,22 +1151,7 @@ void GeometricPerspectiveProtocols::exp_nag4(
      size_t comm_end = iopack->io->counter;
     //  printf("MW communication cost: %zu\n", comm_end - comm_start);
 
-  if (party == sci::ALICE) { // send MW to bob. Bob get whole MW. Alice get 0.
-       iopack->io->send_data(MW, dim * sizeof(uint64_t));
-       for (int i = 0; i < dim; i++) {
-           MW[i] = 0;
-       }
-     } else {
-       uint64_t *recv_MW = new uint64_t[dim];
-       iopack->io->recv_data(recv_MW, dim * sizeof(uint64_t));
-       for (int i = 0; i < dim; i++) {
-         MW[i] = (MW[i] + recv_MW[i]) & ((1ULL << 2) - 1);
-       }
-       delete[] recv_MW;
-     }
-
-
-   ring_exp(inA, exp_inA, dim, localexp_f, localexp_bw, in_f);
+     ring_exp(inA, exp_inA, dim, localexp_f, localexp_bw, in_f);
    uint64_t *zero = new uint64_t[dim];
    for (int i = 0; i < dim; i++) {
        zero[i] = 0;
@@ -1284,91 +1204,40 @@ void GeometricPerspectiveProtocols::exp_nag4(
        }
      }
 
-     uint64_t *buffer = new uint64_t[dim * 4];
-     uint64_t random_numberbob = 0;
-     uint64_t random_numberalice = 0;
-  uint64_t mask_res_exp =
-      (1ULL << (2 * localexp_bw - 2 * localexp_f + 2 + out_f)) - 1;
+      uint64_t *y = new uint64_t[dim];
+      uint64_t **spec = new uint64_t *[dim];
+      uint64_t mask_res_exp =
+          (1ULL << (2 * localexp_bw - 2 * localexp_f + 2 + out_f)) - 1;
 
-     if (party != sci::ALICE) {
-       for (int i = 0; i < dim; ++i) {
-         for (uint8_t j = 0; j < 4; ++j) {
+      for (int i = 0; i < dim; ++i) {
+        spec[i] = new uint64_t[4];
+        for (uint8_t j = 0; j < 4; ++j) {
+          __uint128_t prod = (__uint128_t)MW_lut[j] * (__uint128_t)outB[i];
+          __int128_t diff = (__int128_t)prod - wrap_outB[i] *
+                                                (__int128_t)MW_lut[j] *
+                                                (1ULL << (2 * localexp_bw));
+          uint64_t shift = locallut_f + localexp_f * 2 - out_f;
+          uint64_t res =
+              (uint64_t)(((diff + (__int128_t)(1ULL << (shift - 1))) >>
+                          shift) &
+                         mask_res_exp);
+          spec[i][j] = res & mask_res_exp;
+        }
+      }
 
-           __uint128_t prod = (__uint128_t)MW_lut[j] * (__uint128_t)outB[i];
+      this->aux->shared_lookup_table<uint64_t>(
+          spec, MW, y, dim, 2, 2 * localexp_bw - 2 * localexp_f + 2 + out_f);
 
-        __int128_t diff = (__int128_t)prod - wrap_outB[i] *
-                                                 (__int128_t)MW_lut[j] *
-                                                 (1ULL << (2 * localexp_bw));
+      for (int i = 0; i < dim; ++i)
+        delete[] spec[i];
+      delete[] spec;
 
-           uint64_t shift = locallut_f + localexp_f * 2 - out_f; 
-        uint64_t res =
-            (uint64_t)(((diff + (__int128_t)(1ULL << (shift - 1))) >> shift) &
-                       mask_res_exp);
-           buffer[i * 4 + j] = (res + random_numberbob) & mask_res_exp;
-         }
-       }
-       iopack->io->send_data(buffer, dim * 4 * sizeof(uint64_t));
-     } else {
-       iopack->io->recv_data(buffer, dim * 4 * sizeof(uint64_t));
-     }
+      uint64_t mask_result = (1ULL << (out_bw)) - 1;
+      for (int i = 0; i < dim; i++) {
+        result[i] = y[i] & mask_result;
+      }
 
-     uint64_t *y = new uint64_t[dim];
-     if (party == sci::ALICE) {
-       uint64_t **spec = new uint64_t *[dim];
-   
-       for (int i = 0; i < dim; ++i) {
-         spec[i] = new uint64_t[4];
-         for (uint8_t j = 0; j < 4; ++j) {
-           __uint128_t prod = (__uint128_t)MW_lut[j] * (__uint128_t)outB[i];
-        __int128_t diff = (__int128_t)prod - wrap_outB[i] *
-                                                 (__int128_t)MW_lut[j] *
-                                                 (1ULL << (2 * localexp_bw));
-
-        uint64_t shift = locallut_f + localexp_f * 2 -
-                         out_f; 
-        uint64_t res =
-            (uint64_t)(((diff + (__int128_t)(1ULL << (shift - 1))) >> shift) &
-                       mask_res_exp);
-        spec[i][j] =
-            (res + random_numberalice + buffer[i * 4 + j]) & mask_res_exp;
-         }
-       }
-
-     this->aux->lookup_table<uint64_t>(spec, nullptr, nullptr, dim, 2,
-                                      2 * localexp_bw - 2 * localexp_f + 2 +
-                                          out_f);
-       for (int i = 0; i < dim; ++i)
-       delete[] spec[i];
-       delete[] spec;
-       } else if (party == sci::BOB) {
-    this->aux->lookup_table<uint64_t>(
-        nullptr, MW, y, dim, 2, 2 * localexp_bw - 2 * localexp_f + 2 + out_f);
-       }
-      //  printf("y[384] = %llu\n", y[384]);
-      //  printf("MW[384] = %llu\n", MW[384]);
-       uint64_t mask_result = (1ULL << (out_bw)) - 1;
-       if (party != sci::ALICE) {
-           for (int i = 0; i < dim; i++) {
-               result[i] =
-                 (y[i] - random_numberbob) & mask_result; 
-           }
-         } else {
-           for (int i = 0; i < dim; i++) {
-      result[i] = -random_numberalice & mask_result; 
-           }
-         } 
-
-         delete[] MW;
-         delete[] exp_inA;
-         delete[] MW_lut;
-         delete[] outB;
-         delete[] zero;
-         delete[] msb_0;
-         delete[] wrap_outB;
-         delete[] wrap_outB_alice_send;
-         delete[] wrap_outB_bob_recv;
-         delete[] buffer;
-         delete[] y;
+          delete[] y;
 }
 
 void GeometricPerspectiveProtocols::exp_softmaxx( 
@@ -1439,7 +1308,7 @@ if (party == sci::ALICE) {
 // printf("inA_expinput[384] = %llu\n", inA_expinput[384]);
 // printf("MW_input[384] = %llu\n", MW_input[384]);
 
-exp_nag4(dim, inA_expinput, exp_result, MW, in_f + 3, in_f, in_f + 3, in_f,
+exp_nag4(dim, inA_expinput, exp_result, MW, in_f + 3, in_f, in_bw, in_f,
          localexp_bw, localexp_f, locallut_bw, locallut_f);
          
   // printf("exp_result[384] = %llu\n", exp_result[384]);
@@ -1520,7 +1389,7 @@ void GeometricPerspectiveProtocols::exp_nagx(
           }
   
         mw(dim, MW_input, MW, in_bw, 2);
-  exp_nag4(dim, inA_expinput, exp_result, MW, in_f + 3, in_f, in_f + 3, in_f,
+  exp_nag4(dim, inA_expinput, exp_result, MW, in_f + 3, in_f, in_bw, in_f,
            localexp_bw, localexp_f, locallut_bw, locallut_f);
           size_t comm_end_exp = iopack->get_comm();
         std::cout << "exp nag4 comm: " << comm_end_exp - comm_start_exp << std::endl;
@@ -2400,6 +2269,7 @@ void GeometricPerspectiveProtocols::matrix_vector_unsigned_mul(
 
 
 // Faithful division protocol implementation based on Algorithm 3
+
 void GeometricPerspectiveProtocols::division(int32_t dim, uint64_t *input, uint64_t *output,
                                             uint64_t divisor, uint32_t bw, uint64_t B) {
     // Implementation of Algorithm 3: Faithful division protocol
@@ -2433,173 +2303,99 @@ void GeometricPerspectiveProtocols::division(int32_t dim, uint64_t *input, uint6
 
     // For general divisors, use full protocol
     uint64_t *mw_output = new uint64_t[dim];
-    uint64_t *X1 = new uint64_t[dim];  // Will hold quotient part from lookup
-    uint64_t *l_epsilon = new uint64_t[dim];  // Will hold remainder info
+    uint64_t *X1 = new uint64_t[dim];
+    uint64_t *l_epsilon = new uint64_t[dim];
 
-    // Step 6: Invoke MW protocol to learn [MW]^2
-    // MW classifies input into ranges for table lookup
-    // Use mwwithB with the provided B parameter
+    // Step 6: Invoke MW protocol and keep [MW]^2 secret-shared.
     mwwithB(dim, B, input, mw_output, bw, 2);
 
-    // Alice sends MW share to Bob, Bob reconstructs plaintext MW
-    // (Following the pattern from our_sin.cpp)
-    if (party == sci::ALICE) {
-        iopack->io->send_data(mw_output, dim * sizeof(uint64_t));
-    } else {
-        uint64_t *mw_recv = new uint64_t[dim];
-        iopack->io->recv_data(mw_recv, dim * sizeof(uint64_t));
-        // Bob reconstructs MW = alice_mw + bob_mw
-        for (int i = 0; i < dim; i++) {
-            mw_output[i] = (mw_recv[i] + mw_output[i]) & 0x3;
-        }
-        delete[] mw_recv;
-    }
+    uint64_t **T_d = new uint64_t*[dim];
+    uint64_t **T_epsilon = new uint64_t*[dim];
 
-    if (party == sci::ALICE) {  // P0 in the algorithm
-        // Build lookup tables for Alice (all zeros for quotient, but we still send them)
-        uint64_t **T_d = new uint64_t*[dim];
-        uint64_t **T_epsilon = new uint64_t*[dim];
+    for (int i = 0; i < dim; i++) {
+        T_d[i] = new uint64_t[4];
+        T_epsilon[i] = new uint64_t[4];
 
-        for (int i = 0; i < dim; i++) {
-            T_d[i] = new uint64_t[4];
-            T_epsilon[i] = new uint64_t[4];
+        if (party == sci::ALICE) {
             for (int j = 0; j < 4; j++) {
                 T_d[i][j] = 0;
                 T_epsilon[i][j] = 0;
             }
-        }
-
-        // Alice sends tables via OT
-        aux->lookup_table<uint64_t>(T_d, nullptr, nullptr, dim, 2, bw);
-        aux->lookup_table<uint64_t>(T_epsilon, nullptr, nullptr, dim, 2, l_d + 1);
-
-        // Clean up tables
-        for (int i = 0; i < dim; i++) {
-            delete[] T_d[i];
-            delete[] T_epsilon[i];
-        }
-        delete[] T_d;
-        delete[] T_epsilon;
-
-        // Alice's shares are 0
-        for (int i = 0; i < dim; i++) {
-            X1[i] = 0;
-            l_epsilon[i] = 0;
-        }
-
-        // Step 9: P0 computes temp = (x0 mod d) + l_epsilon - d
-        uint64_t *temp_val = new uint64_t[dim];
-        for (int i = 0; i < dim; i++) {
-            uint64_t x0_mod_d = input[i] % divisor;
-            int64_t temp_signed = (int64_t)x0_mod_d - (int64_t)divisor;
-            temp_val[i] = temp_signed & mask_ld;
-        }
-
-        // Step 10: DReLU to detect carry
-        uint8_t *e_bool = new uint8_t[dim];
-        aux->MSB(temp_val, e_bool, dim, l_d + 1);
-
-        // Invert for DReLU (DReLU returns 0 if negative, 1 if positive)
-        for (int i = 0; i < dim; i++) {
-            e_bool[i] = 1 - e_bool[i];
-        }
-
-        // Step 11: B2A conversion
-        uint64_t *e_arith = new uint64_t[dim];
-        aux->B2A(e_bool, e_arith, dim, bw);
-
-        // Step 12: P0 outputs floor(x0/d) + [X1] + [e]
-        for (int i = 0; i < dim; i++) {
-            uint64_t x0_div_d = input[i] / divisor;  // Local division of P0's share
-            output[i] = (x0_div_d + X1[i] + e_arith[i]) & mask_bw;
-        }
-
-        delete[] temp_val;
-        delete[] e_bool;
-        delete[] e_arith;
-
-    } else { // party == BOB (P1 in the algorithm)
-        // Steps 2-5: Build lookup tables T^d and T^epsilon for P1
-        uint64_t **T_d = new uint64_t*[dim];
-        uint64_t **T_epsilon = new uint64_t*[dim];
-
-        for (int i = 0; i < dim; i++) {
-            T_d[i] = new uint64_t[4];
-            T_epsilon[i] = new uint64_t[4];
-
-            // P1 sets T^d[j] = floor((x1 - j*L)/d) and
-            // T^epsilon[j] = (x1 - j*L) mod d
-            for (int j = 0; j < 3; j++) {  // j ∈ {0,1,2}
-                // Compute (x1 - j*L) in signed arithmetic
+        } else {
+            for (int j = 0; j < 3; j++) {
                 int64_t val_signed = (int64_t)input[i] - (int64_t)(j * L);
-
-                // Perform floor division and modulo in signed domain
-                // Floor division: for negative numbers, round towards -∞
                 int64_t quotient, remainder;
                 if (val_signed >= 0) {
                     quotient = val_signed / (int64_t)divisor;
                     remainder = val_signed % (int64_t)divisor;
                 } else {
-                    // For negative numbers, ensure floor division
                     quotient = -((-(val_signed + 1)) / (int64_t)divisor + 1);
                     remainder = val_signed - quotient * (int64_t)divisor;
                     if (remainder < 0) {
                         remainder += divisor;
                     }
                 }
-
-                // Convert to ring representation
                 T_d[i][j] = quotient & mask_bw;
                 T_epsilon[i][j] = remainder & mask_ld;
             }
-            T_d[i][3] = 0;  // j=3 case (overflow)
+            T_d[i][3] = 0;
             T_epsilon[i][3] = 0;
         }
+    }
 
-        // Step 7: P1 invokes LUT to learn [X1]^l
-        // Bob receives Alice's table value (which is 0) via OT
-        aux->lookup_table<uint64_t>(nullptr, mw_output, X1, dim, 2, bw);
+    // Steps 7-8: shared-table LUTs indexed by secret-shared MW.
+    aux->shared_lookup_table<uint64_t>(T_d, mw_output, X1, dim, 2, bw);
+    aux->shared_lookup_table<uint64_t>(T_epsilon, mw_output, l_epsilon, dim, 2, l_d + 1);
 
-        // Step 8: P1 invokes LUT to learn [l_epsilon]^(l_d+1)
-        aux->lookup_table<uint64_t>(nullptr, mw_output, l_epsilon, dim, 2, l_d + 1);
+    for (int i = 0; i < dim; i++) {
+        delete[] T_d[i];
+        delete[] T_epsilon[i];
+    }
+    delete[] T_d;
+    delete[] T_epsilon;
 
-        // CRITICAL: Bob must add his own table values to complete the secret sharing!
-        // mw_output now contains the reconstructed plaintext MW value
-        for (int i = 0; i < dim; i++) {
-            uint64_t mw_val = mw_output[i];  // Use reconstructed plaintext MW value
-            X1[i] = (X1[i] + T_d[i][mw_val]) & mask_bw;
-            l_epsilon[i] = (l_epsilon[i] + T_epsilon[i][mw_val]) & mask_ld;
-        }
-
-        // Clean up tables
-        for (int i = 0; i < dim; i++) {
-            delete[] T_d[i];
-            delete[] T_epsilon[i];
-        }
-        delete[] T_d;
-        delete[] T_epsilon;
-
-        // Step 9: P1's share of temp is just l_epsilon (Alice already subtracted d)
-        // Combined: temp = (x0 mod d) - d + l_epsilon = (x0 mod d) + l_epsilon - d
+    if (party == sci::ALICE) {
+        // Step 9: P0 computes temp = (x0 mod d) + [l_epsilon]_0 - d
         uint64_t *temp_val = new uint64_t[dim];
         for (int i = 0; i < dim; i++) {
-            temp_val[i] = l_epsilon[i] & mask_ld;  // No subtraction here!
+            uint64_t x0_mod_d = input[i] % divisor;
+            int64_t temp_signed = (int64_t)x0_mod_d + (int64_t)l_epsilon[i] - (int64_t)divisor;
+            temp_val[i] = temp_signed & mask_ld;
         }
 
-        // Step 10: DReLU to detect carry
         uint8_t *e_bool = new uint8_t[dim];
         aux->MSB(temp_val, e_bool, dim, l_d + 1);
-
-        // Invert for DReLU
         for (int i = 0; i < dim; i++) {
             e_bool[i] = 1 - e_bool[i];
         }
 
-        // Step 11: B2A conversion
         uint64_t *e_arith = new uint64_t[dim];
         aux->B2A(e_bool, e_arith, dim, bw);
 
-        // Step 12: P1 outputs [X1] + [e]
+        for (int i = 0; i < dim; i++) {
+            uint64_t x0_div_d = input[i] / divisor;
+            output[i] = (x0_div_d + X1[i] + e_arith[i]) & mask_bw;
+        }
+
+        delete[] temp_val;
+        delete[] e_bool;
+        delete[] e_arith;
+    } else {
+        // Step 9: P1's share of temp is [l_epsilon]_1.
+        uint64_t *temp_val = new uint64_t[dim];
+        for (int i = 0; i < dim; i++) {
+            temp_val[i] = l_epsilon[i] & mask_ld;
+        }
+
+        uint8_t *e_bool = new uint8_t[dim];
+        aux->MSB(temp_val, e_bool, dim, l_d + 1);
+        for (int i = 0; i < dim; i++) {
+            e_bool[i] = 1 - e_bool[i];
+        }
+
+        uint64_t *e_arith = new uint64_t[dim];
+        aux->B2A(e_bool, e_arith, dim, bw);
+
         for (int i = 0; i < dim; i++) {
             output[i] = (X1[i] + e_arith[i]) & mask_bw;
         }

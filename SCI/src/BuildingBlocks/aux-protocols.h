@@ -90,6 +90,22 @@ public:
       // bitwidth of output of LUT
       int32_t bw_y);
 
+
+  template <typename T>
+  void shared_lookup_table(
+      // local table share
+      T **spec,
+      // local index share
+      T *x,
+      // output share
+      T *y,
+      // size of vector
+      int32_t size,
+      // bitwidth of input to LUT
+      int32_t bw_x,
+      // bitwidth of output of LUT
+      int32_t bw_y);
+
   // MSB computation
   void MSB(
       // input vector

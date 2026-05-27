@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
 
     // Generate test data with fixed seed for reproducibility
     std::mt19937 gen(42);
-    std::uniform_real_distribution<double> dis(-1000, 0); // range [-10,0] for exp_nagx
+    std::uniform_real_distribution<double> dis(0.1, 4.0); // x range [0.1,4.0] for exp(-x)
     // std::uniform_real_distribution<double> dis(0, 0); 
 
     cout << "Generating test data for " << dim << " elements..." << endl;
@@ -106,17 +106,18 @@ int main(int argc, char **argv) {
     // Store original test values for later verification
     double *test_values = new double[dim];
     
-    // Generate inputs - note: exp_nagx computes exp(-inA) where inA > 0
+    // Generate negative inputs in [-4.0, -0.1], equivalent to exp(-x) for x in [0.1, 4.0].
     for (int i = 0; i < dim; i++) {
-        double test_val = dis(gen); // positive value
+        double x = dis(gen);
+        double test_val = -x; // exp_softmaxx evaluates exp(test_val) = exp(-x)
         test_values[i] = test_val;
         // test_values[0] = 8.0 - 0.0001;
         
         if (party == sci::ALICE) {
-            double alice_share = test_val * 0.6; // Alice gets 60% of the value
+            double alice_share = test_val * 0.6; // Alice gets 60% of the negative value
             inA[i] = double2fix(alice_share, in_f, in_bw);
         } else {
-            double bob_share = test_val * 0.4; // Bob gets 40% of the value
+            double bob_share = test_val * 0.4; // Bob gets 40% of the negative value
             inA[i] = double2fix(bob_share, in_f, in_bw);
         }
     }
@@ -178,7 +179,7 @@ int main(int argc, char **argv) {
             // Reconstruct the input from Alice and Bob shares
             double input_val = fix2double(input_alice[i], input_bob[i], in_bw, in_f);
             
-            // Expected result: exp(-input_val) since exp_nagx computes exp(-inA)
+            // Expected result: exp(input_val), where input_val = -x and x in [0.1, 4.0].
             double expected_result = exp(input_val);
             
             // Calculate errors

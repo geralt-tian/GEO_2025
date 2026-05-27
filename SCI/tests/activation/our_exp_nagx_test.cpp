@@ -206,6 +206,10 @@ int main(int argc, char **argv) {
         printf("Total tests: %d\n", dim);
         printf("Correct results (ULP < 10): %d (%.2f%%)\n", 
                correct_results, 100.0 * correct_results / dim);
+        printf("Average ULP error: %.4f\n", total_ulp_error / dim);
+        printf("Maximum ULP error: %.4f\n", max_ulp_error);
+        printf("Average relative error: %.6f%%\n", 100.0 * total_relative_error / dim);
+        printf("Maximum relative error: %.6f%%\n", 100.0 * max_relative_error);
         
         cout << "\n=== Performance Statistics ===" << endl;
         printf("Communication: %zu bytes\n", comm_end - comm_start);

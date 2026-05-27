@@ -30,6 +30,7 @@ namespace sci {
 class OTPack {
 public:
   SplitKKOT<NetIO> *kkot[KKOT_TYPES];
+  SplitKKOT<NetIO> *kkot_reversed[KKOT_TYPES];
 
   // iknp_straight and iknp_reversed: party
   // acts as sender in straight and receiver in reversed.
@@ -47,6 +48,8 @@ public:
 
     for (int i = 0; i < KKOT_TYPES; i++) {
       kkot[i] = new SplitKKOT<NetIO>(party, iopack->io, 1 << (i + 1));
+      kkot_reversed[i] =
+          new SplitKKOT<NetIO>(3 - party, iopack->io_rev, 1 << (i + 1));
     }
 
     iknp_straight = new SplitIKNP<NetIO>(party, iopack->io);
@@ -58,8 +61,10 @@ public:
   }
 
   ~OTPack() {
-    for (int i = 0; i < KKOT_TYPES; i++)
+    for (int i = 0; i < KKOT_TYPES; i++) {
       delete kkot[i];
+      delete kkot_reversed[i];
+    }
     delete iknp_straight;
     delete iknp_reversed;
   }
@@ -68,18 +73,22 @@ public:
     switch (party) {
     case 1:
       kkot[0]->setup_send();
+      kkot_reversed[0]->setup_recv();
       iknp_straight->setup_send();
       iknp_reversed->setup_recv();
       for (int i = 1; i < KKOT_TYPES; i++) {
         kkot[i]->setup_send();
+        kkot_reversed[i]->setup_recv();
       }
       break;
     case 2:
       kkot[0]->setup_recv();
+      kkot_reversed[0]->setup_send();
       iknp_straight->setup_recv();
       iknp_reversed->setup_send();
       for (int i = 1; i < KKOT_TYPES; i++) {
         kkot[i]->setup_recv();
+        kkot_reversed[i]->setup_send();
       }
       break;
     }
@@ -97,6 +106,7 @@ public:
   void copy(OTPack *copy_from) {
     assert(this->do_setup == false && copy_from->do_setup == true);
     SplitKKOT<NetIO> *kkot_base = copy_from->kkot[0];
+    SplitKKOT<NetIO> *kkot_r_base = copy_from->kkot_reversed[0];
     SplitIKNP<NetIO> *iknp_s_base = copy_from->iknp_straight;
     SplitIKNP<NetIO> *iknp_r_base = copy_from->iknp_reversed;
 
@@ -104,6 +114,8 @@ public:
     case 1:
       for (int i = 0; i < KKOT_TYPES; i++) {
         this->kkot[i]->setup_send(kkot_base->k0, kkot_base->s);
+        this->kkot_reversed[i]->setup_recv(kkot_r_base->k0,
+                                           kkot_r_base->k1);
       }
       this->iknp_straight->setup_send(iknp_s_base->k0, iknp_s_base->s);
       this->iknp_reversed->setup_recv(iknp_r_base->k0, iknp_r_base->k1);
@@ -111,6 +123,8 @@ public:
     case 2:
       for (int i = 0; i < KKOT_TYPES; i++) {
         this->kkot[i]->setup_recv(kkot_base->k0, kkot_base->k1);
+        this->kkot_reversed[i]->setup_send(kkot_r_base->k0,
+                                           kkot_r_base->s);
       }
       this->iknp_straight->setup_recv(iknp_s_base->k0, iknp_s_base->k1);
       this->iknp_reversed->setup_send(iknp_r_base->k0, iknp_r_base->s);

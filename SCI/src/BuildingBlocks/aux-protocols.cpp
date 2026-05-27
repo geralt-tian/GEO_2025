@@ -172,6 +172,62 @@ void AuxProtocols::lookup_table(T **spec, T *x, T *y, int32_t size,
   }
 }
 
+template <typename T>
+void AuxProtocols::shared_lookup_table(T **spec, T *x, T *y, int32_t size,
+                                       int32_t bw_x, int32_t bw_y) {
+  assert(spec != nullptr && x != nullptr && y != nullptr);
+  assert(bw_x <= 8 && bw_x >= 1);
+  int32_t T_size = sizeof(T) * 8;
+  assert(bw_y <= T_size);
+
+  T mask_x = (bw_x == T_size ? -1 : ((1ULL << bw_x) - 1));
+  T mask_y = (bw_y == T_size ? -1 : ((1ULL << bw_y) - 1));
+  uint64_t N = 1 << bw_x;
+
+  PRG128 prg;
+  T *mask_share = new T[size];
+  T *recv_share = new T[size];
+  uint8_t *choice = new uint8_t[size];
+  T **data = new T *[size];
+  prg.random_data(mask_share, size * sizeof(T));
+
+  for (int i = 0; i < size; i++) {
+    mask_share[i] &= mask_y;
+    recv_share[i] = 0;
+    choice[i] = x[i] & mask_x;
+    data[i] = new T[N];
+  }
+
+  if (party == sci::ALICE) {
+    for (int i = 0; i < size; i++) {
+      for (uint64_t j = 0; j < N; j++) {
+        uint64_t idx = (uint64_t(choice[i]) + j) & mask_x;
+        data[i][j] = (spec[i][idx] - mask_share[i]) & mask_y;
+      }
+    }
+    otpack->kkot[bw_x - 1]->send(data, size, bw_y);
+    otpack->kkot_reversed[bw_x - 1]->recv(recv_share, choice, size, bw_y);
+  } else { // party == sci::BOB
+    otpack->kkot[bw_x - 1]->recv(recv_share, choice, size, bw_y);
+    for (int i = 0; i < size; i++) {
+      for (uint64_t j = 0; j < N; j++) {
+        uint64_t idx = (j + uint64_t(choice[i])) & mask_x;
+        data[i][j] = (spec[i][idx] - mask_share[i]) & mask_y;
+      }
+    }
+    otpack->kkot_reversed[bw_x - 1]->send(data, size, bw_y);
+  }
+
+  for (int i = 0; i < size; i++) {
+    y[i] = (mask_share[i] + recv_share[i]) & mask_y;
+    delete[] data[i];
+  }
+  delete[] data;
+  delete[] choice;
+  delete[] recv_share;
+  delete[] mask_share;
+}
+
 void AuxProtocols::MSB(uint64_t *x, uint8_t *msb_x, int32_t size,
                        int32_t bw_x) {
   assert(bw_x <= 64);
@@ -737,9 +793,15 @@ void AuxProtocols::msnzb_GC(uint64_t *x, uint8_t *one_hot_vector, int32_t bw_x,
   return;
 }
 
+template void AuxProtocols::shared_lookup_table(uint64_t **spec, uint64_t *x,
+                                                uint64_t *y, int32_t size,
+                                                int32_t bw_x, int32_t bw_y);
 template void AuxProtocols::lookup_table(uint64_t **spec, uint64_t *x,
                                          uint64_t *y, int32_t size,
                                          int32_t bw_x, int32_t bw_y);
+template void AuxProtocols::shared_lookup_table(uint8_t **spec, uint8_t *x,
+                                                uint8_t *y, int32_t size,
+                                                int32_t bw_x, int32_t bw_y);
 template void AuxProtocols::lookup_table(uint8_t **spec, uint8_t *x, uint8_t *y,
                                          int32_t size, int32_t bw_x,
                                          int32_t bw_y);
